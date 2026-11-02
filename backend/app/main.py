@@ -18,6 +18,9 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.auth import CurrentUser, is_admin
 from app.config import settings
 from app.database import engine, get_session
+from app.routers import assignments as assignments_router
+from app.routers import models as models_router
+from app.routers import providers as providers_router
 from app.schemas import ClientConfig, DataResponse, HealthResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -113,3 +116,13 @@ def me(user: CurrentUser, session: Session = Depends(get_session)) -> DataRespon
             "first_seen": record.created_at.isoformat() if record.created_at else None,
         }
     )
+
+
+# The registry and gateway are versioned (/api/v1) because their callers are other
+# apps' servers, deployed on their own schedules: a breaking change gets /api/v2 beside
+# it, not a coordinated release of four repositories. /api/health, /api/config and
+# /api/me stay unversioned, matching the siblings.
+API_V1 = "/api/v1"
+app.include_router(providers_router.router, prefix=f"{API_V1}/providers", tags=["providers"])
+app.include_router(models_router.router, prefix=API_V1, tags=["models"])
+app.include_router(assignments_router.router, prefix=API_V1, tags=["routing"])

@@ -73,3 +73,83 @@ def auth_client_fixture(session):
     with TestClient(fastapi_app) as client:
         yield client
     fastapi_app.dependency_overrides.clear()
+
+
+ADMIN_ID = "admin-user"
+
+
+@pytest.fixture(name="switch_user")
+def switch_user_fixture():
+    """Call with a user id to make the next requests come from that user."""
+
+    def switch(user_id: str) -> None:
+        fastapi_app.dependency_overrides[current_user] = _as(user_id)
+
+    return switch
+
+
+@pytest.fixture(name="admin")
+def admin_fixture(monkeypatch):
+    """Make ADMIN_ID an administrator. Switch to them with `switch_user(ADMIN_ID)`."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_users", ADMIN_ID)
+    return ADMIN_ID
+
+
+@pytest.fixture(name="catalog")
+def catalog_fixture(session):
+    """The catalogue as the seed migration writes it.
+
+    Read from the migration itself rather than restated, so a test about pricing tests
+    the data production actually has.
+    """
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    from app.models.ai import CatalogEntry
+
+    path = next(Path(__file__).parents[1].glob("alembic/versions/*seed_the_model_catalogue.py"))
+    spec = importlib.util.spec_from_file_location("seed_catalogue", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for index, (vendor, model_id, label, caps, max_tokens, context, dims, pricing, note) in enumerate(
+        module.ROWS
+    ):
+        session.add(
+            CatalogEntry(
+                vendor=vendor,
+                model_id=model_id,
+                label=label,
+                capabilities=json.dumps(sorted(caps)),
+                max_tokens=max_tokens,
+                context_window=context,
+                embed_dims=dims,
+                pricing=json.dumps(pricing, sort_keys=True) if pricing else None,
+                note=note,
+                sort_order=index,
+            )
+        )
+    session.commit()
+
+
+@pytest.fixture(name="vendors")
+def vendors_fixture(monkeypatch):
+    """Every vendor, faked. Each test sets `vendors.respond` and reads `vendors.calls`."""
+    import httpx
+
+    from app import outbound
+
+    class FakeVendors:
+        def __init__(self):
+            self.calls: list[httpx.Request] = []
+            self.respond = lambda request: httpx.Response(200, json={})
+
+        def handler(self, request: httpx.Request) -> httpx.Response:
+            self.calls.append(request)
+            return self.respond(request)
+
+    fake = FakeVendors()
+    monkeypatch.setattr(outbound, "TRANSPORT", httpx.MockTransport(fake.handler))
+    return fake

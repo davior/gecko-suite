@@ -5,6 +5,7 @@ on `SQLModel.metadata` at import time, so a table missing from this list produce
 empty migration and a silent schema drift.
 """
 
+from app.models.ai import AIModel, AIProvider, CatalogEntry, TaskAssignment
 from app.models.user import User
 
-__all__ = ["User"]
+__all__ = ["AIModel", "AIProvider", "CatalogEntry", "TaskAssignment", "User"]
