@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gecko-suite-client"
+version = "0.1.0"
+description = "What Notes, GAM and GVC use to call Gecko Suite's AI gateway"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27"]
+
+[tool.setuptools]
+packages = ["gecko_suite_client"]

@@ -18,3 +18,7 @@ backend/.tmp-gen.db
 
 frontend/node_modules/
 frontend/dist/
+
+# The client package's build output.
+client/build/
+client/*.egg-info/
