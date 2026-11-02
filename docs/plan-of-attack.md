@@ -291,7 +291,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SI-1 | A `suite.geckopico.com` site in the `Caddyfile`, proxying to `suite-frontend:80` (see `docs/deploying.md`) | M1 | Open |
+| SI-1 | A `suite.geckopico.com` site in the `Caddyfile`, proxying to `suite-frontend:80` (see `docs/deploying.md`) | M1 | PR open ([davior/infra#2](https://github.com/davior/infra/pull/2)) |
 
 **GAM**
 
