@@ -19,8 +19,10 @@ from app.auth import CurrentUser, is_admin
 from app.config import settings
 from app.database import engine, get_session
 from app.routers import assignments as assignments_router
+from app.routers import gateway as gateway_router
 from app.routers import models as models_router
 from app.routers import providers as providers_router
+from app.routers import usage as usage_router
 from app.schemas import ClientConfig, DataResponse, HealthResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -126,3 +128,5 @@ API_V1 = "/api/v1"
 app.include_router(providers_router.router, prefix=f"{API_V1}/providers", tags=["providers"])
 app.include_router(models_router.router, prefix=API_V1, tags=["models"])
 app.include_router(assignments_router.router, prefix=API_V1, tags=["routing"])
+app.include_router(gateway_router.router, prefix=f"{API_V1}/ai", tags=["gateway"])
+app.include_router(usage_router.router, prefix=f"{API_V1}/usage", tags=["usage"])
