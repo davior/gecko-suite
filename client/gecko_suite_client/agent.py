@@ -39,7 +39,7 @@ class Outcome:
 
     @property
     def cost(self) -> Optional[float]:
-        costs = [r.cost for r in self.replies]
+        costs = [getattr(r, "cost", None) for r in self.replies]
         return None if any(c is None for c in costs) else round(sum(costs), 6)
 
 
@@ -95,6 +95,7 @@ def run_agent(
     max_rounds: int = 24,
     nudge: Optional[Callable[[Reply], Optional[str]]] = None,
     max_nudges: int = MAX_NUDGES,
+    max_tokens_message: Optional[str] = None,
     caps: Optional[Mapping[str, int]] = None,
     cancelled: Callable[[], bool] = lambda: False,
     on_reply: Callable[[Reply], None] = lambda reply: None,
@@ -108,6 +109,11 @@ def run_agent(
       parallel). Either way every call must get exactly one result.
     - `nudge(reply)` is asked when the model stops without calling a tool. Return text to
       tell it to carry on ("the video still has issues: ..."), or None to let it finish.
+      It is the app's to report that to its user (call `on_step` from inside it): only the
+      app knows what a good sentence is.
+    - `max_tokens_message` replaces the sentence for a reply cut off at the model's output
+      limit, which otherwise points people at Gecko Suite's settings. An app that has its
+      own settings screen says so here.
     - `caps` limits how many times a tool may run in this turn (GVC's
       ASSISTANT_MAX_GENERATIONS for generate_image).
     """
@@ -118,7 +124,9 @@ def run_agent(
     for _ in range(max_rounds):
         if cancelled():
             raise Stopped()
-        reply = conversation.ask(on_delta=on_delta)
+        # Only passed when asked for: an app's own conversation objects (GVC's, which this
+        # loop replaced, and the scripted ones its tests use) have `ask()` and nothing else.
+        reply = conversation.ask(on_delta=on_delta) if on_delta is not None else conversation.ask()
         outcome.rounds += 1
         outcome.replies.append(reply)
         on_reply(reply)
@@ -129,18 +137,19 @@ def run_agent(
             # A server-side tool paused the turn; sending the history back resumes it.
             continue
         if reply.stop == "refusal":
+            category = getattr(reply, "refusal_category", None)
             outcome.cut_short = "The model declined this request" + (
-                f" ({reply.refusal_category})." if reply.refusal_category else ".")
+                f" ({category})." if category else ".")
             return outcome
         if not reply.tool_calls:
             if reply.stop == "max_tokens":
-                outcome.cut_short = ("The reply hit the model's output limit. Raise its maximum response "
-                                     "length in Gecko Suite, or ask for less at once.")
+                outcome.cut_short = max_tokens_message or (
+                    "The reply hit the model's output limit. Raise its maximum response "
+                    "length in Gecko Suite, or ask for less at once.")
                 return outcome
             message = nudge(reply) if nudge else None
             if message and nudges < max_nudges:
                 nudges += 1
-                on_step("nudge", message.split("\n", 1)[0])
                 conversation.tell(message)
                 continue
             return outcome

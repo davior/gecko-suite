@@ -150,7 +150,10 @@ the merged diff, and cover each of these that applies, in the order they must be
    issuing an app secret), with the exact `docker compose exec suite-backend …` line.
 7. **Other apps:** what Notes, GAM or GVC must change, set or redeploy for this to take
    effect, or "nothing" if they are unaffected.
-8. **Verify:** checks specific to this change, beyond `/api/health`.
+8. **Verify:** checks specific to this change, beyond `/api/health`. For any change to
+   the compose files, include that the frontend is on the `web` network
+   (`docker network inspect web --format '{{range .Containers}}{{.Name}} {{end}}'` lists
+   `gecko-suite-frontend-1`): the health check passes without it while the site 502s.
 9. **Roll back:** what undoing it takes (the previous commit, a downgrade, a restore).
 
 If a step does not apply, leave it out rather than writing "none". The base commands:
