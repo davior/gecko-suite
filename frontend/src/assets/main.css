@@ -1,0 +1,300 @@
+@import './glass.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-100-BQDzDElq.woff2') format('woff2'),
+       url('./fonts/inter-v12-latin-100-46Mq0mOp.woff') format('woff');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-200-DXfqWPZg.woff') format('woff'),
+       url('./fonts/inter-v12-latin-200-BxfrU12A.woff2') format('woff2');
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-300-f7r92Nkj.woff') format('woff'),
+       url('./fonts/inter-v12-latin-300-DEbyFmpd.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-regular-CahmJf_6.woff') format('woff'),
+       url('./fonts/inter-v12-latin-regular-YtgfLPRn.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-500-BQ2gQN_M.woff') format('woff'),
+       url('./fonts/inter-v12-latin-500-DfX5FI9E.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-600-D01NXWOK.woff') format('woff'),
+       url('./fonts/inter-v12-latin-600-BvOeHRLc.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-700-B5TOIllR.woff') format('woff'),
+       url('./fonts/inter-v12-latin-700-Bj1B9WKG.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-800-DFVvDWwT.woff') format('woff'),
+       url('./fonts/inter-v12-latin-800-Bdy4lAMa.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter-v12-latin-900-ORHAl5ZU.woff') format('woff'),
+       url('./fonts/inter-v12-latin-900-CMga-52B.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+  }
+
+  * {
+    @apply box-border;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-95;
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 hover:shadow-md hover:shadow-blue-500/30 hover:-translate-y-px;
+  }
+
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 active:bg-gray-100 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 hover:shadow-sm hover:-translate-y-px;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 active:bg-red-800 hover:shadow-md hover:shadow-red-500/30 hover:-translate-y-px;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-gray-600 hover:bg-gray-100 active:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:active:bg-gray-600 hover:-translate-y-px;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm dark:bg-gray-800 dark:border-gray-700 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300;
+  }
+}
+
+/* BlockNote editor overrides */
+.bn-editor {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  margin-top: 2px;
+}
+
+/* Hyperlinks in note content — discernible colour, no underline, underline on
+   hover. A direct rule on <a> overrides inherited block text colours (including
+   the glass-theme overrides). Dark themes use a lighter blue for contrast. */
+.bn-editor a {
+  color: #2563eb; /* blue-600 */
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bn-editor a:hover {
+  text-decoration: underline;
+}
+
+.bn-container[data-color-scheme="dark"] .bn-editor a {
+  color: #60a5fa; /* blue-400 — readable on dark backgrounds */
+}
+
+/* Shared note content panel — translucent so the theme background shows through.
+   Uses the active theme's glass colour (light/dark) with a fixed, readable
+   opacity, falling back to translucent white when no theme is applied. */
+.shared-content {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(var(--glass-rgb, 255, 255, 255), 0.3);
+  background: rgba(var(--glass-rgb, 255, 255, 255), 0.65);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 10px));
+  backdrop-filter: blur(var(--glass-blur, 10px));
+}
+
+/* Clear BlockNote's own opaque editor background so the translucent panel shows. */
+.shared-content .bn-container,
+.shared-content .bn-editor {
+  background: transparent !important;
+}
+
+/* Code blocks always use dark background with light text, regardless of app theme */
+.bn-block-content[data-content-type="codeBlock"],
+.bn-block-content[data-content-type="codeBlock"] * {
+  color: #e2e8f0 !important;
+  text-shadow: none !important;
+}
+
+.bn-container {
+  min-height: 100%;
+}
+
+/* Highlight a block while its annotation icon is hovered or its panel is open */
+.annotation-highlight {
+  background-color: rgba(245, 158, 11, 0.12);
+  box-shadow: inset 2px 0 0 0 rgb(245, 158, 11);
+  border-radius: 2px;
+  transition: background-color 0.15s ease;
+}
+.annotation-tooltip-body p:last-child { margin-bottom: 0; }
+
+/* Brief flash on a heading after jumping to it from the document outline */
+.outline-target-flash {
+  animation: outline-flash 1.2s ease-out;
+  border-radius: 2px;
+}
+@keyframes outline-flash {
+  0%, 30% { background-color: rgba(59, 130, 246, 0.18); }
+  100% { background-color: transparent; }
+}
+
+/* In-note find/replace highlights (CSS Custom Highlight API). Every match gets a
+   soft amber wash; the current match is painted more strongly. Colours are chosen
+   to read in both light and dark themes. */
+::highlight(find-match) {
+  background-color: rgba(250, 204, 21, 0.4);
+}
+::highlight(find-current) {
+  background-color: #f59e0b;
+  color: #1f2937;
+}
+/* Fallback for browsers without the Custom Highlight API: mark the current block. */
+.find-current-block {
+  background-color: rgba(245, 158, 11, 0.15);
+  box-shadow: inset 2px 0 0 0 rgb(245, 158, 11);
+  border-radius: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+    margin: 0;
+    padding: 0;
+  }
+
+  .print-content {
+    display: block !important;
+  }
+
+  /* Remove height restrictions and overflow that clip content in print */
+  html, body {
+    height: auto;
+    min-height: auto;
+  }
+
+  div[class*="flex"] {
+    height: auto;
+    min-height: auto;
+  }
+
+  /* Allow editor area to expand for printing */
+  .editor-area {
+    overflow: visible !important;
+    min-height: auto !important;
+    height: auto !important;
+    page-break-inside: auto;
+  }
+
+  /* Allow natural page breaks in editor content */
+  .bn-editor {
+    page-break-inside: auto;
+    height: auto !important;
+    min-height: auto !important;
+  }
+
+  /* Keep headings with their content when possible, but allow page breaks if needed */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: auto;
+    orphans: 2;
+    widows: 2;
+  }
+
+  /* Keep images with content when possible */
+  img {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  /* Remove all shadows for clear print output */
+  h1, h2, h3, h4, h5, h6,
+  p, span, li, label,
+  * {
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+}

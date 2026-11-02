@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A film reel on violet. Notes is green and GAM blue, and all three apps sit open in
+       neighbouring tabs, so the tile colour is what tells GVC apart at 16px; the reel
+       says what it makes. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#tile)"/>
+  <circle cx="32" cy="32" r="25" fill="#f5f3ff"/>
+  <g fill="#6d28d9">
+    <circle cx="32" cy="17.5" r="6.2"/>
+    <circle cx="45.8" cy="27.5" r="6.2"/>
+    <circle cx="40.5" cy="43.7" r="6.2"/>
+    <circle cx="23.5" cy="43.7" r="6.2"/>
+    <circle cx="18.2" cy="27.5" r="6.2"/>
+    <circle cx="32" cy="32" r="3.6"/>
+  </g>
+</svg>

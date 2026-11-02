@@ -1,0 +1,27 @@
+# Overlay for reverse-proxy deployments.
+#
+# Caddy (from the infra repo) terminates TLS and routes suite.geckopico.com over the
+# shared external `web` network. This joins the suite to it; without it, every request
+# through the proxy is a 502.
+#
+# Only the frontend joins, as in GVC: the backend has no reason to be on a network the
+# other apps share, and nginx reaches it over `suite_default`. Notes, GAM and GVC call the
+# suite through its public name, like a browser does.
+#
+# Set this in .env so a plain `docker compose up -d` cannot forget it:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+
+services:
+  frontend:
+    networks:
+      default:
+      web:
+        # The name the reverse proxy reaches it by: `reverse_proxy suite-frontend:80`.
+        # GVC's frontend is also a service called `frontend` on this network, so the bare
+        # service name could resolve to either app.
+        aliases:
+          - suite-frontend
+
+networks:
+  web:
+    external: true

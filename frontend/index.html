@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Gecko Suite: the AI providers, models and usage shared by Notes, GAM and GVC." />
+    <title>Gecko Suite</title>
+    <!-- From src/ rather than public/, so Vite fingerprints them: nginx serves every
+         .svg as immutable for a year, which is only safe for a hashed name. The PNG is
+         for browsers without SVG favicons; sizes="32x32" stops Chrome from preferring
+         it over the SVG. -->
+    <link rel="icon" href="/src/assets/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/src/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/src/assets/apple-touch-icon.png" />
+    <script>
+      // Applied before first paint, so a dark-mode user never sees a white flash on
+      // load. The store takes over once React mounts.
+      try {
+        const stored = localStorage.getItem('theme')
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (stored === 'dark' || (!stored && prefersDark)) {
+          document.documentElement.classList.add('dark')
+        }
+      } catch {
+        /* private mode, blocked storage — the default light theme is fine */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

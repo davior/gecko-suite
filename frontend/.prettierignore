@@ -1,0 +1,10 @@
+dist
+node_modules
+
+# Carried over from gecko-notes unchanged. Left unformatted on purpose so the two
+# copies stay byte-comparable — a `diff` against upstream is how a fix to the design
+# layer gets noticed and carried across. Reformatting would make every future diff
+# noise.
+src/assets/fonts
+src/assets/main.css
+src/assets/glass.css
