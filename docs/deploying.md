@@ -87,7 +87,7 @@ Then edit `.env`:
 | `SUITE_ENCRYPTION_KEYS` | A new key, from the command below. It encrypts every API key the suite holds. **Store a copy somewhere other than this server's `data/`**: a database backup without it is a backup of keys nobody can read. |
 | `ADMIN_USERS` | Your Gecko Notes username. Admins set up the providers and routing everyone shares. |
 | `NOTES_BASE_URL` | `https://notes.geckopico.com` (the default). |
-| `COMPOSE_FILE` | `docker-compose.yml:docker-compose.prod.yml`, so the frontend joins the `web` network. |
+| `COMPOSE_FILE` | `docker-compose.yml:docker-compose.prod.yml`, so the frontend joins the `web` network. **Without it the site answers 502**: Caddy cannot find `suite-frontend`, although the suite itself runs and passes its health check. It is commented out in `.env.example`, so uncomment it. |
 | `APP_PORT` | Leave at `18084` unless it is taken. |
 
 Generate the encryption key:
@@ -115,9 +115,19 @@ table and seeds the model catalogue (models, limits and list prices). If the bac
 exits instead, `docker compose logs suite-backend` says why; a missing or malformed
 `JWT_SECRET_KEY` or `SUITE_ENCRYPTION_KEYS` is the usual reason.
 
+Before touching `infra`, check the frontend joined the `web` network, which is the one
+thing the health check above cannot tell you:
+
+```bash
+docker network inspect web --format '{{range .Containers}}{{.Name}} {{end}}'
+```
+
+It should list `gecko-suite-frontend-1`. If it does not, `COMPOSE_FILE` is missing from
+`.env`; set it and run `docker compose up -d`, which recreates only the frontend.
+Otherwise Caddy logs `lookup suite-frontend ... no such host` and every request is a 502.
+
 Now deploy the `infra` change from step 1. Then open `https://suite.geckopico.com`. You
-should arrive signed in (through the Notes
-cookie) and see "(admin)" beside your name.
+should arrive signed in (through the Notes cookie) and see "(admin)" beside your name.
 
 ## 4. Bring across what the apps already have (optional)
 
