@@ -1,0 +1,197 @@
+/* Glass theme overrides — activated only when [data-glass] is set on <html> */
+
+[data-glass] body {
+  background: transparent !important;
+}
+
+/* Full-screen view containers and scroll areas must be transparent so the
+   fixed #theme-bg layer behind them is visible */
+[data-glass] .h-screen,
+[data-glass] .min-h-screen,
+[data-glass] main {
+  background: transparent !important;
+}
+
+/* Cards / panels */
+[data-glass] .card {
+  background: rgba(var(--glass-rgb), var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.5)) !important;
+  box-shadow: 0 var(--shadow-size) var(--shadow-blur) var(--shadow-color) !important;
+}
+
+[data-glass] .card:hover {
+  box-shadow: 0 calc(var(--shadow-size) * 2) calc(var(--shadow-blur) * 1.5) var(--shadow-color) !important;
+}
+
+/* Secondary buttons */
+[data-glass] .btn-secondary {
+  background: rgba(var(--glass-rgb), var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.5)) !important;
+  box-shadow: 0 calc(var(--shadow-size) * 0.5) calc(var(--shadow-blur) * 0.5) var(--shadow-color) !important;
+}
+
+[data-glass] .btn-secondary:hover,
+[data-glass] .btn-primary:hover,
+[data-glass] .btn-danger:hover {
+  box-shadow: 0 var(--shadow-size) var(--shadow-blur) var(--shadow-color) !important;
+}
+
+/* Ghost buttons */
+[data-glass] .btn-ghost {
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+}
+
+/* BlockNote editor text colour — ensure it matches the glass mode even if
+   Mantine's internal theme doesn't fully propagate through the glass layer.
+   Scoped to blocks without an explicit data-text-color so user-applied
+   block-level and inline colours take precedence. */
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) .bn-block-content,
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) p,
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) h1,
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) h2,
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) h3,
+[data-glass="light"] .editor-area .bn-editor .bn-block:not([data-text-color]) li {
+  color: #1a1a2e !important;
+}
+
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) .bn-block-content,
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) p,
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) h1,
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) h2,
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) h3,
+[data-glass="dark"] .editor-area .bn-editor .bn-block:not([data-text-color]) li {
+  color: #f1f5f9 !important;
+}
+
+/* Editor area — glass background with increased opacity for readability.
+   The multiplier (2.5×) ensures text is comfortably legible while still
+   allowing the theme background to show through. Capped at 0.88 so even
+   high-opacity themes remain translucent. BlockNote's internal backgrounds
+   are cleared so this glass layer is what shows through the content. */
+[data-glass] .editor-area {
+  background: rgba(var(--glass-rgb), min(calc(var(--glass-opacity) * 2.5), 0.88)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+}
+
+[data-glass] .editor-area .bn-editor,
+[data-glass] .editor-area .bn-container {
+  background: transparent !important;
+}
+
+/* Pills — category filter chips, tag chips, sort/view toggle pills.
+   Targets rounded-full + border (excludes FAB which has no border,
+   and primary buttons which use rounded-lg).
+   Exclude selected pills (.shadow-none = "All", [style*="outline"] = category)
+   so their color fills are not overridden by the glass background. */
+[data-glass] .rounded-full.border:not(.shadow-none):not([style*="outline"]) {
+  background: rgba(var(--glass-rgb), var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.5)) !important;
+  box-shadow: 0 calc(var(--shadow-size) * 0.5) calc(var(--shadow-blur) * 0.5) var(--shadow-color);
+}
+
+[data-glass] .rounded-full.border:not(.shadow-none):not([style*="outline"]):hover {
+  background: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.6)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 2.2)) !important;
+}
+
+/* Selected pills — suppress shadow so ring/outline isn't buried */
+[data-glass] .rounded-full.border.shadow-none,
+[data-glass] .rounded-full.border[style*="outline"] {
+  box-shadow: none !important;
+}
+
+/* Inputs */
+[data-glass] .input {
+  background: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 0.8)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.5)) !important;
+}
+
+/* Tables — apply glass styling to alternating rows for readability */
+[data-glass] tr:nth-child(even) {
+  background: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 0.5)) !important;
+}
+
+[data-glass] thead {
+  background: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 0.7)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+}
+
+/* Page structural elements */
+[data-glass] header,
+[data-glass] aside {
+  background: rgba(var(--glass-rgb), var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border-color: rgba(var(--glass-rgb), calc(var(--glass-opacity) * 1.5)) !important;
+}
+
+/* Dropdowns and floating panels */
+[data-glass] [class*="bg-white"]:not(.note-card-img-wash),
+[data-glass] [class*="dark:bg-gray-800"]:not(.note-card-img-wash),
+[data-glass] [class*="dark:bg-gray-900"]:not(.note-card-img-wash) {
+  background: rgba(var(--glass-rgb), var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+}
+
+/* Card image overlay must never get backdrop-filter — the image has its own
+   static blur and compounding the theme's glass blur would make it unreadable */
+[data-glass] .note-card-img-wash {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── Light mode text & shadows ─────────────────────────────────────────────── */
+
+[data-glass="light"] {
+  color-scheme: light;
+  --text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
+}
+
+[data-glass="light"] body {
+  color: #1a1a2e;
+}
+
+[data-glass="light"] h1,
+[data-glass="light"] h2,
+[data-glass="light"] h3,
+[data-glass="light"] h4,
+[data-glass="light"] p,
+[data-glass="light"] span:not([class*="bg-"]),
+[data-glass="light"] li,
+[data-glass="light"] label {
+  text-shadow: var(--text-shadow);
+}
+
+/* ── Dark mode text & shadows ──────────────────────────────────────────────── */
+
+[data-glass="dark"] {
+  color-scheme: dark;
+  --text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 0 6px rgba(0, 0, 0, 0.45);
+}
+
+[data-glass="dark"] body {
+  color: #f1f5f9;
+}
+
+[data-glass="dark"] h1,
+[data-glass="dark"] h2,
+[data-glass="dark"] h3,
+[data-glass="dark"] h4,
+[data-glass="dark"] p,
+[data-glass="dark"] span:not([class*="bg-"]),
+[data-glass="dark"] li,
+[data-glass="dark"] label {
+  text-shadow: var(--text-shadow);
+}

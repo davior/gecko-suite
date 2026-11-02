@@ -9,9 +9,13 @@ speech, web search), and see what each app spent. Every app sends its AI work th
 the suite, so API keys live in one place and never leave it. Sign-in and shared
 preferences such as themes move here later.
 
-**Status:** M0, the bootstrap. The service starts, verifies a Gecko Notes session and
-has its encryption scheme in place. The AI gateway arrives in M1. See
-[`docs/plan-of-attack.md`](docs/plan-of-attack.md) for the design and the milestones.
+**Status:** M1, the AI core. Providers, models, task routing, the chat gateway (tool
+calling, streaming), embeddings, web search, prompts and personas, the usage ledger, the
+importer for the three apps' existing settings, and the settings screens. The apps start
+calling it in M2. See [`docs/plan-of-attack.md`](docs/plan-of-attack.md) for the design
+and the milestones.
+
+The apps call it with [`gecko-suite-client`](client/README.md).
 
 ## Running it
 
@@ -29,7 +33,7 @@ docker compose up --build -d
 curl -f http://localhost:18084/api/health
 ```
 
-or, for development (Python 3.13):
+or, for development (Python 3.13, Node 20):
 
 ```bash
 cd backend
@@ -38,4 +42,14 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8003
 ```
 
-Tests: `cd backend && pytest -q`.
+```bash
+cd frontend && npm install && npm run dev    # http://localhost:5176
+```
+
+Bring across what Notes, GAM and GVC already have (read-only; safe to re-run):
+
+```bash
+cd backend && python -m app.tools.import_legacy --notes notes.db --gam gam.db --gvc gvc.db --dry-run
+```
+
+Tests: `cd backend && pytest -q`, and `cd frontend && npm test`.

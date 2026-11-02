@@ -16,9 +16,10 @@ decisions that would otherwise look arbitrary.
 
 | Milestone | Status |
 |---|---|
-| M0 Bootstrap | **This change.** Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
-| M1 AI core | Next |
-| M2–M8 | Not started |
+| M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
+| M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
+| M2 First consumers | Next. Needs SA-1/SA-2 and SV-1/SV-2 in GAM and GVC |
+| M3–M8 | Not started |
 
 ## Why this exists
 
@@ -118,7 +119,8 @@ made entirely by hand" keeps holding.
   gam | gvc), `task`, `model_id`, `params` (JSON).
   Tasks: `chat.assistant`, `chat.draft`, `chat.edit`, `chat.quick`, `enrich.describe`,
   `enrich.summarize`, `enrich.autotag`, `embed.text`, `image.generate`, `image.edit`,
-  `video.generate`, `speech.tts`, `speech.stt`, `search.web`.
+  `video.generate`, `speech.tts`, `speech.stt`. (Web search is not a routed task: it has
+  its own providers, `WebSearchProvider`, and its own resolution.)
   Resolution: user+app → user → instance+app → instance. A request may name a model
   directly, if the caller can see it. This settles GVC's open decision #4 (a capable
   model for drafts, a cheap one for edits) with no GVC code.
@@ -216,6 +218,28 @@ different model" rows into one provider with several models; usage history, tagg
 its app; Notes' system prompts and recipes; and the fal, Deepgram and embedding keys out
 of the `UserSetting` tables.
 
+**M1 as built.** What differs from the design above, and why:
+- **Two kinds of row the design did not name.** `CatalogEntry` holds the known models and
+  their list prices as migration-seeded data; a model with no price of its own is priced
+  from it at call time, so a later price migration reaches every model. Family rows
+  (`claude-opus-*`) price ids the catalogue does not list.
+- **One level of task fallback** (`chat.draft` → `chat.assistant`, `image.edit` →
+  `image.generate`), so one assignment makes every chat-shaped task work. The task's own
+  four rules are tried before its fallback's.
+- **The gateway is stateless, and replays verbatim.** Every reply carries the vendor's raw
+  assistant message; callers send it back unchanged, so thinking blocks survive. Switching
+  protocol mid-conversation falls back to the neutral fields.
+- **Anthropic's server-side refusal fallback** is on for the models the Claude API
+  reference names. A fallback answer is recorded and priced as the model that served.
+- **App credentials reach only the gateway** and read-only lookups (an allowlist in
+  `app/auth.py`), and the app they name is the app usage is credited to.
+- **The raw passthrough (`/ai/proxy/*`) is not built yet.** Notes is the only caller, and
+  its cutover is M4; it lands with SN-1.
+- **fal and Deepgram are registered vendors** (the importer brings their keys across) but
+  are not called until M3; their connection test says so.
+- **Persona avatars are a URL field for now.** Upload needs file storage the suite does
+  not have yet.
+
 **M2 — First consumers**, behind `AI_BACKEND=local|suite` in each app, so the cutover is
 reversible.
 - GAM: `build_provider` → `SuiteChat`, `build_embedder` → `SuiteEmbedder`. **The new GAM
@@ -261,6 +285,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Open |
 | SN-5 | Settings → AI pages link to the suite | M4 | Open |
 | SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open |
+| SN-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=notes` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example` | M4 | Open |
 
 **GAM**
 
@@ -272,6 +297,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SA-4 | Deepgram transcription through the suite | M3 | Open |
 | SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | Open |
 | SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | Open |
+| SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | Open |
 
 **GVC**
 
@@ -281,6 +307,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | Open |
 | SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3 | Open |
 | SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | Open |
+| SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Open |
 
 ## Open questions
 
@@ -288,6 +315,9 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
    from the suite. Fine on one host; worth measuring before M4.
 2. **Per-app spending limits.** The ledger makes them possible; nothing asks for them
    yet.
-3. **Ollama on a private address.** Only Ollama may use one today. If the suite runs on a
+3. **Embedding dimensions.** GAM asks for 512 dimensions from a model whose native size is
+   1536. The suite passes `dimensions` through per request; GAM must keep asking for the
+   same number, and store the model beside every vector, or its index mixes sizes.
+4. **Ollama on a private address.** Only Ollama may use one today. If the suite runs on a
    different machine from the Ollama server, the provider's `base_url` must be reachable
    from the suite, not from the app.

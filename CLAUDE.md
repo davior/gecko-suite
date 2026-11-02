@@ -52,7 +52,7 @@ README**. GVC is the place to look first for a pattern; it is the newest of the 
 - Tests go through `TestClient` against real routes. Upstream vendors are faked with a
   swappable httpx transport; no test reaches the network.
 
-**Frontend** (from M1)
+**Frontend**
 - Types live beside the api module that owns them. There is no `types/` directory.
 - One `xApi = { … }` object per backend router, in `src/api/`, over the shared axios
   client.
@@ -67,9 +67,9 @@ alternative or a load-bearing subtlety is the most valuable thing in the file.
 ## After every change (dev environment)
 
 Dev ports are **8003 and 5176**. Notes uses 8000/5173, GAM 8001/5174 and GVC 8002/5175,
-and all four run at once. Once the frontend exists, `vite.config.ts`'s proxy target has
-to match the port uvicorn is started on, or the frontend reaches a sibling's backend,
-which shares `JWT_SECRET_KEY` and answers instead of erroring.
+and all four run at once. `vite.config.ts`'s proxy target has to match the port uvicorn
+is started on, or the frontend reaches a sibling's backend, which shares
+`JWT_SECRET_KEY` and answers instead of erroring.
 
 The backend runs on **Python 3.13**, pinned by `.python-version` and matched by
 `backend/Dockerfile` and CI. Build the venv with `uv venv` or `python3.13 -m venv`,
@@ -83,21 +83,34 @@ Migrations don't run on startup. `alembic upgrade head` lives in
 cd backend
 alembic upgrade head
 uvicorn app.main:app --reload --port 8003
+
+# Frontend — http://localhost:5176 (proxies /api to :8003)
+cd frontend && npm run dev
 ```
+
+The importer and key rotation are commands, run from `backend/`:
+
+```bash
+python -m app.tools.import_legacy --notes ../../gecko-notes/data/db/notes.db --gam ../../gam/data/db/gam.db --gvc ../../gvc/data/db/gvc.db --dry-run
+python -m app.tools.rotate_keys --dry-run
+```
+
+`gecko-suite-client` lives in `client/` and is tested from the backend suite
+(`tests/test_client_package.py`), against the real routes.
 
 `.env` needs `JWT_SECRET_KEY` (the same as Notes') and `SUITE_ENCRYPTION_KEYS`. For local
 use without Notes running, also set `ENVIRONMENT=development` and
 `DEV_AUTH_USER=<any id>`.
 
-Under Docker: `docker compose up --build -d`.
+Under Docker the frontend is a compiled bundle served by Nginx:
+`docker compose up --build -d`, then hard-refresh.
 
 ## Before pushing
 
 ```bash
 cd backend && pytest -q
+cd frontend && npm test && npm run build    # build also typechecks
 ```
-
-From M1, also `cd frontend && npm test && npm run build` (the build also typechecks).
 
 ## After committing to a non-main branch
 
@@ -113,8 +126,7 @@ docker compose ps
 curl -f http://localhost:${APP_PORT}/api/health
 ```
 
-- `data/` is bind-mounted (the database, and from M1 persona avatars), so it survives
-  rebuilds.
+- `data/` is bind-mounted (the database), so it survives rebuilds.
 - `JWT_SECRET_KEY` must be set and must **match gecko-notes'**. The app refuses to start
   without it.
 - `SUITE_ENCRYPTION_KEYS` must be set; the app refuses to start without it. **Back it up

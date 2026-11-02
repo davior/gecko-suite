@@ -18,9 +18,6 @@ permissions:
 
 # Deliberately no `paths:` filters. A job filtered out never reports a status, so once
 # these are required checks a change that skipped one would block forever.
-#
-# No frontend job yet: there is no frontend until M1. It arrives with it, copied from
-# GVC's (format, lint, vitest, build).
 
 jobs:
   backend:
@@ -51,6 +48,41 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  frontend:
+    name: Frontend (lint + vitest + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches frontend/Dockerfile (node:20-alpine).
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Not --ignore-scripts: esbuild's postinstall is what places its binary.
+      - name: Install dependencies
+        run: npm ci
+
+      # Cheapest first, so a formatting slip does not wait on a build.
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      # `npm run build` is `tsc --noEmit && vite build`: typechecks and bundles.
+      - name: Typecheck and build
+        run: npm run build
+
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest
@@ -62,6 +94,9 @@ jobs:
       # image. A Dockerfile that no longer builds is only discovered on deploy otherwise.
       - name: Build backend image
         run: docker build -t suite-backend:ci ./backend
+
+      - name: Build frontend image
+        run: docker build -t suite-frontend:ci ./frontend
 
       - name: Verify migrations run and the API answers
         run: |

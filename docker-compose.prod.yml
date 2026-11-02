@@ -4,14 +4,15 @@
 # shared external `web` network. This joins the suite to it; without it, every request
 # through the proxy is a 502.
 #
-# The backend itself joins, for now, because there is no frontend in front of it until
-# M1. When there is, this moves to the frontend, as in GVC.
+# Only the frontend joins, as in GVC: the backend has no reason to be on a network the
+# other apps share, and nginx reaches it over `suite_default`. Notes, GAM and GVC call the
+# suite through its public name, like a browser does.
 #
 # Set this in .env so a plain `docker compose up -d` cannot forget it:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
 
 services:
-  suite-backend:
+  frontend:
     networks:
       - default
       - web
