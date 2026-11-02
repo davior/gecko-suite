@@ -132,22 +132,26 @@ Start from the PR's **Deployment** section (the template asks for one), check it
 the merged diff, and cover each of these that applies, in the order they must be done:
 
 1. **Before pulling:** anything that must exist first, such as a sibling app's change
-   (the plan's "Changes needed" ids), a DNS or reverse-proxy entry, or a backup. Back up
+   (the plan's "Changes needed" ids), a DNS entry, or a backup. Back up
    `data/db/suite.db` before any migration that rewrites or drops data.
-2. **Configuration:** every new or changed variable in `.env.example` and
+2. **Reverse proxy:** any change to how the suite is reached goes through Caddy in the
+   [`infra`](https://github.com/davior/infra) repo (`Caddyfile`). Give the exact block,
+   and the steps to deploy it there (`git pull`, then `docker compose restart caddy`: the
+   Caddyfile is a single-file bind mount, so `caddy reload` keeps reading the old file).
+3. **Configuration:** every new or changed variable in `.env.example` and
    `app/config.py`, what to set it to, and whether the app refuses to start without it.
    Never print a secret's value; say how to generate one.
-3. **Deploy:** the commands below, saying which services the change rebuilds (the
+4. **Deploy:** the commands below, saying which services the change rebuilds (the
    backend, the frontend, or both).
-4. **Migrations:** name each new revision in `backend/alembic/versions/`. They run on
+5. **Migrations:** name each new revision in `backend/alembic/versions/`. They run on
    container start (`entrypoint.sh`); say what each one does to existing data and whether
    it can be downgraded.
-5. **One-off steps after deploying:** commands to run once (the importer, key rotation,
+6. **One-off steps after deploying:** commands to run once (the importer, key rotation,
    issuing an app secret), with the exact `docker compose exec suite-backend …` line.
-6. **Other apps:** what Notes, GAM or GVC must change, set or redeploy for this to take
+7. **Other apps:** what Notes, GAM or GVC must change, set or redeploy for this to take
    effect, or "nothing" if they are unaffected.
-7. **Verify:** checks specific to this change, beyond `/api/health`.
-8. **Roll back:** what undoing it takes (the previous commit, a downgrade, a restore).
+8. **Verify:** checks specific to this change, beyond `/api/health`.
+9. **Roll back:** what undoing it takes (the previous commit, a downgrade, a restore).
 
 If a step does not apply, leave it out rather than writing "none". The base commands:
 

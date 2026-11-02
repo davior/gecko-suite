@@ -13,7 +13,8 @@ The steps to deploy exactly this change, in order. They are output again when it
 so write them for someone deploying it without the diff open. Leave out what does not
 apply; write "Nothing beyond the standard redeploy" if that is all it takes.
 
-- Before pulling: sibling-app changes, DNS / proxy entries, backups needed first.
+- Before pulling: sibling-app changes, DNS entries, backups needed first.
+- Reverse proxy: the Caddyfile change in the `infra` repo, if any.
 - Configuration: new or changed .env variables, and what to set them to.
 - Services rebuilt: backend, frontend, or both.
 - Migrations: each new revision, what it does to existing data, whether it downgrades.

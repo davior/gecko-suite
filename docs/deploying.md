@@ -8,18 +8,55 @@ changes nothing for them, and it can be taken down again with no effect on them.
 
 ## 1. Before you start
 
-- **A name and a route.** Point `suite.geckopico.com` at the server, and add a site to the
-  reverse proxy (the infra repo's Caddyfile) that sends it to the suite's frontend on the
-  shared `web` network:
+- **A name and a route.** Point `suite.geckopico.com` at the server. The reverse proxy is
+  Caddy, in the [`infra`](https://github.com/davior/infra) repo: add a site to its
+  `Caddyfile`, beside `notes.geckopico.com`:
 
   ```
   suite.geckopico.com {
+      encode gzip
+
+      log {
+          output stdout
+          level INFO
+      }
+
       reverse_proxy suite-frontend:80
   }
   ```
 
-  `suite-frontend` is the alias `docker-compose.prod.yml` gives the container on that
-  network. Use it rather than `frontend`, which GVC's container is also called.
+  One `reverse_proxy` is all it needs, unlike Notes' entry: the suite's backend is not on
+  the `web` network, and the frontend's nginx already passes `/api` to it, chat streams
+  included. `suite-frontend` is the alias `docker-compose.prod.yml` gives the container
+  on that network. `gecko-suite-frontend-1` would also work, but only for as long as the
+  checkout directory is called `gecko-suite`.
+
+  Commit that to `infra`. Deploy it on the server **after** the suite is running (step 3),
+  because Caddy has nothing to route to before then:
+
+  ```bash
+  cd ../infra && git pull origin main
+  ```
+
+  ```bash
+  docker compose restart caddy
+  ```
+
+  A restart rather than `caddy reload`: the Caddyfile is a single-file bind mount, and
+  `git pull` replaces the file rather than editing it in place, so a running container
+  goes on seeing the old one. Check that it sees the new one, then that Caddy obtained
+  the certificate:
+
+  ```bash
+  docker compose exec caddy grep -A1 suite.geckopico.com /etc/caddy/Caddyfile
+  ```
+
+  ```bash
+  docker compose logs caddy | grep -i suite.geckopico.com
+  ```
+
+  `infra`'s committed Caddyfile has entries for Notes and not for GAM or GVC. If the
+  server's copy has those, commit them too before pulling, or the pull will conflict.
 
 - **Sign-in works through Notes.** Notes must set its session cookie for the whole domain
   (`AUTH_COOKIE_DOMAIN=.geckopico.com` in Notes' `.env`; GAM already depends on this).
@@ -74,7 +111,8 @@ table and seeds the model catalogue (models, limits and list prices). If the bac
 exits instead, `docker compose logs suite-backend` says why; a missing or malformed
 `JWT_SECRET_KEY` or `SUITE_ENCRYPTION_KEYS` is the usual reason.
 
-Then open `https://suite.geckopico.com`. You should arrive signed in (through the Notes
+Now deploy the `infra` change from step 1. Then open `https://suite.geckopico.com`. You
+should arrive signed in (through the Notes
 cookie) and see "(admin)" beside your name.
 
 ## 4. Bring across what the apps already have (optional)
@@ -136,4 +174,6 @@ use the suite in M2. Each one is shown once, when issued, and goes into that app
 docker compose down
 ```
 
-Nothing else depends on the suite yet. `data/` keeps the database for next time.
+Nothing else depends on the suite yet, and `data/` keeps the database for next time.
+Remove the site from `infra`'s Caddyfile too, or Caddy logs a failed upstream on every
+visit.

@@ -287,6 +287,12 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open |
 | SN-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=notes` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example` | M4 | Open |
 
+**infra** (the reverse proxy)
+
+| Id | Change | Milestone | Status |
+|---|---|---|---|
+| SI-1 | A `suite.geckopico.com` site in the `Caddyfile`, proxying to `suite-frontend:80` (see `docs/deploying.md`) | M1 | Open |
+
 **GAM**
 
 | Id | Change | Milestone | Status |
