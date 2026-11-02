@@ -14,15 +14,19 @@ Two transports, in priority order:
 The header wins when both are present, which keeps an explicit token from being
 silently overridden by whatever session the browser happens to be carrying.
 
-A third way in, an app calling on a user's behalf with no user token at all (a GAM
-enrichment job that outlived the token), arrives in M1 as `X-Gecko-App` +
-`X-On-Behalf-Of`, checked against registered app credentials. It is not here yet
-because nothing in M0 would accept it.
+A third way in is an app calling on a user's behalf with no user token at all: a GAM
+enrichment job that outlived the token, a GVC render at 3am. It sends `X-Gecko-App`,
+`X-Gecko-App-Secret` and `X-On-Behalf-Of: <user id>`, checked against the app's
+registered credential (`AppClient`). It is tried first when the secret header is
+present, and a wrong secret is a 401, never a fall-through to the other transports.
+Such a caller may only use the gateway (see `_APP_ALLOWED`), never manage the registry.
 
 Secrets at rest live in `app.crypto`, not here: unlike the siblings, the suite's
 encryption key is not derived from the JWT secret.
 """
 
+import hashlib
+import hmac
 import logging
 from typing import Annotated, Optional
 from urllib.parse import urlsplit
@@ -50,6 +54,9 @@ class UserCtx(BaseModel):
 
     id: str
     username: str = ""
+    # Set when an app called with its own credential on this user's behalf (no user
+    # token). Usage is attributed to it, and it cannot be overridden by the request.
+    app: Optional[str] = None
 
 
 # ─── tokens ──────────────────────────────────────────────────────────────────
@@ -140,10 +147,66 @@ def _origin_allowed_for_cookie(request: Request) -> bool:
     return any(origin_host == _host_of(allowed) for allowed in settings.cors_origins)
 
 
+# What an app credential may reach: the gateway and the read-only lookups an app needs
+# to use it. Deny by default. A leaked app secret must not be able to re-point
+# somebody's routing at an attacker's endpoint, only to spend through what is
+# already configured, which is exactly what the app was trusted to do.
+_APP_ALLOWED = (
+    ("POST", "/api/v1/ai/"),
+    ("POST", "/api/v1/search/web"),
+    ("GET", "/api/v1/resolve"),
+    ("GET", "/api/v1/models"),
+    ("GET", "/api/v1/prompts"),
+    ("GET", "/api/v1/recipes"),
+    ("GET", "/api/v1/personas"),
+    ("GET", "/api/v1/usage"),
+)
+
+
+def _app_caller(request: Request, session: Session, app: Optional[str], secret: str,
+                on_behalf_of: Optional[str]) -> UserCtx:
+    from app.clock import utcnow
+    from app.models.library import AppClient
+
+    def refuse(message: str) -> HTTPException:
+        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                             detail={"code": "app_unauthorized", "message": message})
+
+    client = session.get(AppClient, app) if app else None
+    digest = hashlib.sha256(secret.encode()).hexdigest()
+    # compare_digest even on the miss path, so timing does not say whether an app exists.
+    if not hmac.compare_digest(digest, client.secret_hash if client else "0" * 64) or not client:
+        raise refuse("That app credential is not valid")
+    if not client.enabled:
+        raise refuse(f"The credential for {app} has been switched off")
+    if not on_behalf_of:
+        raise refuse("An app call must say whose behalf it is on (X-On-Behalf-Of)")
+
+    method, path = request.method.upper(), request.url.path
+    if not any(method == m and path.startswith(p) for m, p in _APP_ALLOWED):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={
+            "code": "app_forbidden",
+            "message": "An app credential can use the gateway, not change settings",
+        })
+
+    # Best effort: a failed write here must not fail the request it describes.
+    try:
+        client.last_used_at = utcnow()
+        session.add(client)
+        session.commit()
+    except Exception:
+        session.rollback()
+    return UserCtx(id=on_behalf_of, username="", app=app)
+
+
 def current_user(
     request: Request,
     authorization: Annotated[Optional[str], Header()] = None,
     gecko_session: Annotated[Optional[str], Cookie()] = None,
+    x_gecko_app: Annotated[Optional[str], Header()] = None,
+    x_gecko_app_secret: Annotated[Optional[str], Header()] = None,
+    x_on_behalf_of: Annotated[Optional[str], Header()] = None,
+    session: Session = Depends(get_session),
 ) -> UserCtx:
     """Resolve the caller, or raise 401.
 
@@ -151,6 +214,9 @@ def current_user(
     explicitly rather than read off the request so it shows up in the OpenAPI schema
     and can be overridden in tests.
     """
+    if x_gecko_app_secret:
+        return _app_caller(request, session, x_gecko_app, x_gecko_app_secret, x_on_behalf_of)
+
     token: Optional[str] = None
     # Which transport carried it, because it changes what a failure *means*. A cookie
     # was minted by Notes moments ago and handed over by the browser; if it will not

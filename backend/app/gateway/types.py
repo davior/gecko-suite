@@ -116,6 +116,9 @@ class ChatRequest(BaseModel):
     model_ref: Optional[str] = None
     app: Optional[str] = None
     subject_ref: Optional[str] = Field(default=None, max_length=300)
+    # A persona puts its system prompt first and, if it has one for this task, uses its
+    # own model instead of the caller's routing.
+    persona_id: Optional[str] = None
 
     # Most stable first. A protocol with prompt caching breaks after each block, so
     # what never changes goes first and what changes per turn goes last.

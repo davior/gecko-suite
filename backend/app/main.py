@@ -18,10 +18,13 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.auth import CurrentUser, is_admin
 from app.config import settings
 from app.database import engine, get_session
+from app.routers import apps as apps_router
 from app.routers import assignments as assignments_router
 from app.routers import gateway as gateway_router
+from app.routers import library as library_router
 from app.routers import models as models_router
 from app.routers import providers as providers_router
+from app.routers import search as search_router
 from app.routers import usage as usage_router
 from app.schemas import ClientConfig, DataResponse, HealthResponse
 
@@ -130,3 +133,6 @@ app.include_router(models_router.router, prefix=API_V1, tags=["models"])
 app.include_router(assignments_router.router, prefix=API_V1, tags=["routing"])
 app.include_router(gateway_router.router, prefix=f"{API_V1}/ai", tags=["gateway"])
 app.include_router(usage_router.router, prefix=f"{API_V1}/usage", tags=["usage"])
+app.include_router(library_router.router, prefix=API_V1, tags=["prompts"])
+app.include_router(search_router.router, prefix=f"{API_V1}/search", tags=["search"])
+app.include_router(apps_router.router, prefix=f"{API_V1}/apps", tags=["apps"])

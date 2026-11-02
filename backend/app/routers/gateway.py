@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from app.auth import CurrentUser
 from app.database import get_session
-from app.gateway import chat
+from app.gateway import chat, embed
 from app.gateway.types import ChatRequest, ChatResult
 from app.schemas import DataResponse
 
@@ -32,3 +32,9 @@ def chat_endpoint(request: ChatRequest, user: CurrentUser, session: Session = De
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     return DataResponse(data=chat.run(session, user, request))
+
+
+@router.post("/embed", response_model=DataResponse[embed.EmbedResult])
+def embed_endpoint(request: embed.EmbedRequest, user: CurrentUser, session: Session = Depends(get_session)):
+    """Vectors for a batch of texts, in order. Nothing is stored but the usage row."""
+    return DataResponse(data=embed.run(session, user, request))

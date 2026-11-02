@@ -13,7 +13,7 @@ from sqlmodel import Session
 
 from app.auth import UserCtx, is_admin
 from app.models.user import User
-from app.vocab import SCOPE_INSTANCE, SCOPE_USER, SCOPES
+from app.vocab import APPS, SCOPE_INSTANCE, SCOPE_USER, SCOPES
 
 
 def caller_is_admin(session: Session, user: UserCtx) -> bool:
@@ -58,3 +58,17 @@ def require_scope(scope: str, admin: bool) -> None:
 
 def owner_for(scope: str, user: UserCtx) -> Optional[str]:
     return user.id if scope == SCOPE_USER else None
+
+
+def app_for(user: UserCtx, requested: Optional[str]) -> Optional[str]:
+    """The app a call is attributed to, and routed for.
+
+    An app credential decides it. A request made with one cannot claim to be another
+    app: that would let GAM's credential spend through Notes' routing and have it
+    reported as Notes' spend.
+    """
+    if requested is not None and requested not in APPS:
+        raise bad_request("bad_app", f"Unknown app: {requested}")
+    if user.app and requested and requested != user.app:
+        raise bad_request("bad_app", f"This credential belongs to {user.app}, not {requested}")
+    return user.app or requested

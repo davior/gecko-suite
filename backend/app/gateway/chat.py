@@ -16,10 +16,12 @@ from app.gateway.types import ChatRequest, ChatResult, Reply, Target, UpstreamEr
 from app.models.ai import AIModel, AIProvider
 from app.providers.endpoints import speaks_anthropic
 from app.providers.params import parse_extra_params
-from app.services.access import bad_request, not_found
+from app.models.library import Persona
+from app.routers.library import visible_row
+from app.services.access import app_for, bad_request, not_found
 from app.services.registry import capabilities_of, load_json, resolve, usable, visible_model
 from app.usage.ledger import record_chat
-from app.vocab import APPS, KEYLESS_VENDORS, LLM_VENDORS, TASK_REQUIRES, TASKS
+from app.vocab import KEYLESS_VENDORS, LLM_VENDORS, TASK_REQUIRES, TASKS
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +51,24 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
     request parameters. Everything that can be refused is refused here, as an HTTP
     error, so a streamed response never has to report a configuration mistake mid-way.
     """
-    if request.app is not None and request.app not in APPS:
-        raise bad_request("bad_app", f"Unknown app: {request.app}")
-
-    assignment_params: dict[str, Any] = {}
+    # An app credential fixes the app; a request made with one cannot claim another.
+    request.app = app_for(user, request.app)
     if request.task:
         if request.task not in TASKS:
             raise bad_request("bad_task", f"Unknown task: {request.task}")
         if "chat" not in TASK_REQUIRES[request.task]:
             raise bad_request("bad_task", f"{request.task} is not a chat task")
+
+    persona = _persona(session, user, request)
+    if persona is not None and persona.system_prompt:
+        # First, as the most stable block, so it stays inside the cached prefix.
+        request.system = [persona.system_prompt, *request.system]
+    persona_model = _persona_model(session, user, persona, request.task)
+
+    assignment_params: dict[str, Any] = {}
+    if persona_model is not None:
+        model, provider = persona_model
+    elif request.task:
         hit = resolve(session, user.id, request.task, request.app)
         if hit is None:
             raise _not_configured(request.task)
@@ -111,6 +122,32 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
     asked = request.max_tokens or default
     max_tokens = min(asked, model.max_tokens) if model.max_tokens else asked
     return target, request.task, max_tokens, params
+
+
+def _persona(session: Session, user: UserCtx, request: ChatRequest) -> Optional[Persona]:
+    if not request.persona_id:
+        return None
+    persona = visible_row(session, Persona, request.persona_id, user.id)
+    if persona is None:
+        raise not_found("persona")
+    return persona
+
+
+def _persona_model(session: Session, user: UserCtx, persona: Optional[Persona],
+                   task: Optional[str]) -> Optional[tuple[AIModel, AIProvider]]:
+    """The persona's own model for this task, if it has one the caller can use.
+
+    Checked against the caller, not whoever saved the persona, and skipped (falling back
+    to routing) if switched off, the same way a switched-off assignment is.
+    """
+    if persona is None or not task:
+        return None
+    model_ref = load_json(persona.model_overrides, {}).get(task)
+    model = visible_model(session, model_ref, user.id) if model_ref else None
+    if model is None:
+        return None
+    provider = session.get(AIProvider, model.provider_id)
+    return (model, provider) if usable(model, provider) else None
 
 
 def _check_capabilities(model: AIModel, provider: AIProvider, request: ChatRequest) -> None:
