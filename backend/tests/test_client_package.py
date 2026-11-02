@@ -95,9 +95,46 @@ def test_the_loop_answers_every_call_even_when_it_cannot_run_it(suite, vendors):
 def test_a_nudge_keeps_the_model_going_a_bounded_number_of_times(suite, vendors):
     vendors.respond = lambda r: _reply([{"type": "text", "text": "done?"}])
     conversation = SuiteChat(suite).conversation(system=[], prompt="x")
-    outcome = run_agent(conversation, nudge=lambda reply: "Still 1 issue: fix it.", max_nudges=2)
+    steps = []
+    outcome = run_agent(conversation, nudge=lambda reply: "Still 1 issue: fix it.", max_nudges=2,
+                        on_step=lambda kind, text: steps.append(kind))
     assert outcome.rounds == 3
+    assert steps == []  # reporting a nudge is the app's call: it knows what to say
     assert conversation.messages[-2] == {"role": "user", "content": "Still 1 issue: fix it."}
+
+
+def test_an_apps_own_conversation_works_without_on_delta_or_cost():
+    """GVC's conversations (and its scripted test ones) have ask(), answer() and tell() and
+    nothing more; the loop must not pass what they do not take."""
+    from gecko_suite_client import ToolCall, ToolResult
+    from gecko_suite_client.chat import Reply
+
+    class OwnConversation:
+        def __init__(self):
+            self.script = [
+                Reply(text="", tool_calls=[ToolCall("a", "search_assets", {})], stop="tool_use"),
+                Reply(text="", stop="max_tokens"),
+            ]
+            self.told, self.answered = [], []
+
+        def ask(self):
+            return self.script.pop(0)
+
+        def answer(self, results):
+            self.answered.append(results)
+
+        def tell(self, text):
+            self.told.append(text)
+
+    conversation = OwnConversation()
+    steps = []
+    outcome = run_agent(
+        conversation, handlers={"search_assets": lambda args: "ok"}, on_step=lambda k, t: steps.append(k),
+        max_tokens_message="Raise the response length in Settings.",
+    )
+    assert outcome.cut_short == "Raise the response length in Settings."
+    assert [r.content for r in conversation.answered[0]] == ["ok"]
+    assert outcome.cost is None  # replies that carry no cost make the total unknown, not zero
 
 
 def test_a_refusal_ends_the_turn_and_says_so(suite, vendors):
