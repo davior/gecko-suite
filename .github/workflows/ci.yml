@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  # `main` too, so the default branch carries a signal of its own rather than only
+  # inheriting whatever the pull request said before it merged.
+  push:
+    branches: [main]
+
+# A second push supersedes the first instead of queueing behind it. `main` is exempt.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+# Deliberately no `paths:` filters. A job filtered out never reports a status, so once
+# these are required checks a change that skipped one would block forever.
+#
+# No frontend job yet: there is no frontend until M1. It arrives with it, copied from
+# GVC's (format, lint, vitest, build).
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        # Load-bearing: pytest.ini sets `pythonpath = .` and there is no installable
+        # package, so `app` is importable only from here.
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches backend/Dockerfile (python:3.13-slim) and .python-version. All three
+          # move together, as in GAM and GVC.
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # No environment to set up: conftest.py supplies the JWT_SECRET_KEY and
+      # SUITE_ENCRYPTION_KEYS that app.config refuses to import without.
+      - name: Run tests
+        run: pytest -q
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite above runs against the host toolchain, which can differ from the
+      # image. A Dockerfile that no longer builds is only discovered on deploy otherwise.
+      - name: Build backend image
+        run: docker build -t suite-backend:ci ./backend
+
+      - name: Verify migrations run and the API answers
+        run: |
+          KEY=$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+          docker run -d --name suite-api \
+            -e JWT_SECRET_KEY=ci-only-secret-0123456789abcdef0123456789abcdef \
+            -e SUITE_ENCRYPTION_KEYS="$KEY" \
+            -p 8000:8000 suite-backend:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health; then
+              echo "\nAPI healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy:"
+          docker logs suite-api
+          exit 1

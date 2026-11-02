@@ -1,0 +1,21 @@
+# Overlay for reverse-proxy deployments.
+#
+# Caddy (from the infra repo) terminates TLS and routes suite.geckopico.com over the
+# shared external `web` network. This joins the suite to it; without it, every request
+# through the proxy is a 502.
+#
+# The backend itself joins, for now, because there is no frontend in front of it until
+# M1. When there is, this moves to the frontend, as in GVC.
+#
+# Set this in .env so a plain `docker compose up -d` cannot forget it:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+
+services:
+  suite-backend:
+    networks:
+      - default
+      - web
+
+networks:
+  web:
+    external: true

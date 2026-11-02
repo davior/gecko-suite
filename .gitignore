@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# `.env.*` too: Vite's own conventions use `.env.local` and friends, and the first
+# person to follow its documentation would otherwise commit their secrets.
+.env
+.env.*
+!.env.example
+
+data/
+backend/data/
+backend/*.db*
+# Alembic's autogenerate scratch database.
+backend/.tmp-gen.db
+
+frontend/node_modules/
+frontend/dist/

@@ -1,0 +1,40 @@
+services:
+  # `suite-backend`, not `backend`: Notes and GAM each already have a service called
+  # `backend`, and from M1 the frontend's nginx resolves its upstream by name.
+  suite-backend:
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      # The database, and from M1 persona avatars, so a rebuild keeps them.
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/db/suite.db
+      # Load-bearing. Left to default, the data directory is worked out from where
+      # config.py sits, which in the image is /app/app/, so it lands outside the volume.
+      - DATA_DIR=/app/data
+      # Must match gecko-notes', GAM's and GVC's. No default: the app refuses to start.
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # Encrypts every provider key the suite holds. No default: the app refuses to
+      # start. Losing it loses every stored key, so back it up apart from data/.
+      - SUITE_ENCRYPTION_KEYS=${SUITE_ENCRYPTION_KEYS}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+      - NOTES_BASE_URL=${NOTES_BASE_URL:-https://notes.geckopico.com}
+      - ADMIN_USERS=${ADMIN_USERS:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+    # Published directly until M1 adds the frontend, whose nginx then fronts it and takes
+    # this port over. 18081 is Notes, 18082 GAM and 18083 GVC.
+    ports:
+      - "${APP_PORT:-18084}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Generous: the container runs migrations before uvicorn binds a port.
+      start_period: 30s
+    networks:
+      - default
+
+networks:
+  default:
+    name: suite_default
