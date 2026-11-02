@@ -53,3 +53,5 @@ cd backend && python -m app.tools.import_legacy --notes notes.db --gam gam.db --
 ```
 
 Tests: `cd backend && pytest -q`, and `cd frontend && npm test`.
+
+Putting it on the server for the first time: [`docs/deploying.md`](docs/deploying.md).

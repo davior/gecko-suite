@@ -14,8 +14,13 @@
 services:
   frontend:
     networks:
-      - default
-      - web
+      default:
+      web:
+        # The name the reverse proxy reaches it by: `reverse_proxy suite-frontend:80`.
+        # GVC's frontend is also a service called `frontend` on this network, so the bare
+        # service name could resolve to either app.
+        aliases:
+          - suite-frontend
 
 networks:
   web:

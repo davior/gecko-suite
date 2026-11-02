@@ -117,7 +117,39 @@ cd frontend && npm test && npm run build    # build also typechecks
 Report the pull request for that branch: number, URL, title, draft and CI status. If
 none exists, open a **draft** PR and report it.
 
+Keep the PR's **Deployment** section (from `.github/pull_request_template.md`) true to
+what the branch now contains, updating it with each push, so the instructions are
+reviewed with the code rather than written after the merge.
+
 ## After every commit to main (production deployment)
+
+Whenever a commit lands on `main`, including a pull request merging (a merge event on a
+watched PR), **output deployment instructions for that specific change**, worked out from
+what it actually changed. Not the generic block on its own: a reader should be able to
+deploy from the instructions without opening the diff.
+
+Start from the PR's **Deployment** section (the template asks for one), check it against
+the merged diff, and cover each of these that applies, in the order they must be done:
+
+1. **Before pulling:** anything that must exist first, such as a sibling app's change
+   (the plan's "Changes needed" ids), a DNS or reverse-proxy entry, or a backup. Back up
+   `data/db/suite.db` before any migration that rewrites or drops data.
+2. **Configuration:** every new or changed variable in `.env.example` and
+   `app/config.py`, what to set it to, and whether the app refuses to start without it.
+   Never print a secret's value; say how to generate one.
+3. **Deploy:** the commands below, saying which services the change rebuilds (the
+   backend, the frontend, or both).
+4. **Migrations:** name each new revision in `backend/alembic/versions/`. They run on
+   container start (`entrypoint.sh`); say what each one does to existing data and whether
+   it can be downgraded.
+5. **One-off steps after deploying:** commands to run once (the importer, key rotation,
+   issuing an app secret), with the exact `docker compose exec suite-backend …` line.
+6. **Other apps:** what Notes, GAM or GVC must change, set or redeploy for this to take
+   effect, or "nothing" if they are unaffected.
+7. **Verify:** checks specific to this change, beyond `/api/health`.
+8. **Roll back:** what undoing it takes (the previous commit, a downgrade, a restore).
+
+If a step does not apply, leave it out rather than writing "none". The base commands:
 
 ```bash
 git pull origin main
@@ -133,3 +165,5 @@ curl -f http://localhost:${APP_PORT}/api/health
   separately from `data/`.** Without it, every stored provider key is unreadable.
 - Behind the reverse proxy, set `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml`
   in `.env`.
+
+The first deployment of the suite is written out in [`docs/deploying.md`](docs/deploying.md).
