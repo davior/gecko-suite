@@ -197,6 +197,25 @@ def test_embeddings_and_search_through_the_package(auth_client, catalog, vendors
     assert web_search(client, "owls")[0]["url"] == "https://o.example"
 
 
+def test_an_embedder_knows_its_model_before_it_embeds_anything(auth_client, catalog, vendors):
+    """GAM reads `model` to pick the vectors a query may be compared with, and to report
+    coverage: neither of which embeds."""
+    client = SuiteClient(token="t", http=auth_client)
+    assert SuiteEmbedder(client, app="gam").resolve() is None  # nothing routed yet
+    assert SuiteEmbedder(client, app="gam").model == ""
+
+    pid = auth_client.post("/api/v1/providers", json={"name": "OpenAI", "vendor": "openai", "api_key": "k"}).json()["data"]["id"]
+    mid = auth_client.post(f"/api/v1/providers/{pid}/models", json={"model_id": "text-embedding-3-small"}).json()["data"]["id"]
+    auth_client.put("/api/v1/assignments", json={"task": "embed.text", "model_ref": mid})
+
+    vendors.respond = lambda r: pytest.fail("resolving must not call a vendor")
+    embedder = SuiteEmbedder(client, app="gam")
+    assert embedder.model == "text-embedding-3-small"
+    assert embedder.dimensions == 1536  # the model's own size...
+    assert SuiteEmbedder(client, app="gam", dimensions=512).dimensions == 512  # ...unless asked for fewer
+    assert vendors.calls == []
+
+
 def test_an_app_credential_through_the_package(client, auth_client, switch_user, admin, catalog, vendors):
     from app.auth import current_user
     from app.main import app as fastapi_app
