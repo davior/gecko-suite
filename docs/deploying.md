@@ -35,7 +35,7 @@ changes nothing for them, and it can be taken down again with no effect on them.
   because Caddy has nothing to route to before then:
 
   ```bash
-  cd ../infra && git pull origin main
+  cd ../infra && git checkout -- Caddyfile && git pull origin main
   ```
 
   ```bash
@@ -55,8 +55,12 @@ changes nothing for them, and it can be taken down again with no effect on them.
   docker compose logs caddy | grep -i suite.geckopico.com
   ```
 
-  `infra`'s committed Caddyfile has entries for Notes and not for GAM or GVC. If the
-  server's copy has those, commit them too before pulling, or the pull will conflict.
+  [davior/infra#2](https://github.com/davior/infra/pull/2) makes both changes: it first
+  brings the repo's Caddyfile in line with the server's (which had GAM's and GVC's sites
+  uncommitted), then adds this site. Because the server's local copy is now in the
+  repo, discard it before pulling (`git checkout -- Caddyfile`), or the pull conflicts.
+  `infra`'s `docker-compose.yml` needs nothing: the suite joins the `web` network it
+  already creates.
 
 - **Sign-in works through Notes.** Notes must set its session cookie for the whole domain
   (`AUTH_COOKIE_DOMAIN=.geckopico.com` in Notes' `.env`; GAM already depends on this).
