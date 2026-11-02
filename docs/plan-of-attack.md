@@ -18,7 +18,7 @@ decisions that would otherwise look arbitrary.
 |---|---|
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
-| M2 First consumers | Next. Needs SA-1/SA-2 and SV-1/SV-2 in GAM and GVC |
+| M2 First consumers | In review. GVC ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment and embeddings ([davior/gam#58](https://github.com/davior/gam/pull/58)) are up; GAM's new assistant (SA-2) is not started. See "M2 as built" |
 | M3–M8 | Not started |
 
 ## Why this exists
@@ -248,6 +248,35 @@ reversible.
 - GVC: `providers.build_provider` → `SuiteChat`; `assistant/loop.py` → `run_agent`.
   Per-task routing replaces "one active provider".
 
+**M2 as built.** What differs from the design above, and why:
+- **GVC needs no app credential.** The plan assumed its worker called as the app because
+  it holds the token only in memory. It holds it *so that it can use it*, for the life of
+  the turn, and nothing GVC does with the suite outlives that. It forwards the user's own
+  session, so there is no `SUITE_APP_SECRET` for GVC and SV-5 is dropped. GAM's enrichment
+  jobs do outlive any request, so GAM has one (SA-7).
+- **No `SUITE_APP_ID`.** The app a credential belongs to is the one it was issued for
+  (`gam`), named by the `X-Gecko-App` header; a second setting could only disagree.
+- **The seam is two functions, not a rewrite.** Every GAM job already called
+  `build_provider` and `build_embedder` with only a user id, so the suite sits behind
+  those, and `local` is untouched behind the same setting.
+- **Each job names its own task.** GVC: `chat.draft`, `chat.edit` and `chat.quick` (the
+  clip-picking pass). GAM: `enrich.describe`, `enrich.summarize`, `enrich.autotag`
+  (attribute follows summarize). That is what settles GVC's open decision #4.
+- **Spend is counted once.** In suite mode neither app writes its own usage row for an
+  LLM call; the suite's ledger has it, attributed to the app and to what it was for
+  (`gvc:project:<id>`, `gam:asset:<id>`).
+- **The client changed twice, both found by reading the consumers.** `run_agent` only
+  passes `on_delta` when it is given, lets an app supply its own "reply hit the limit"
+  sentence, and leaves reporting a nudge to the app (GVC's tests fake a conversation whose
+  `ask()` takes no arguments, and its UI has its own step wording). `SuiteEmbedder` knows
+  its model before it embeds, because GAM reads `embedder.model` for coverage and search.
+- **Consumers pin the client to a commit by archive URL.** `python:3.13-slim` has no
+  `git`, so `git+https` would fail in the Docker build. Bump the pin when the client changes.
+- **Both consumers add the suite's public name to `extra_hosts`** in their prod overlay,
+  as they already do for each other: containers cannot reach the server's own public
+  address (hairpin NAT), and an unreachable suite would look like "AI is broken" while
+  every test passed.
+
 **M3 — Media, speech, search.** fal generation moves here; GAM's `/api/generate` stays as
 a facade (call the suite, ingest the result), so GVC's `GamClient.start_generation` is
 unchanged. TTS / STT move here; GVC's `render/tts.py` points at the suite, closing its
@@ -297,23 +326,23 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | Open |
+| SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
 | SA-2 | The new assistant, built on `/ai/chat` + `run_agent` with GAM's own tools | M2 | Open |
 | SA-3 | `/api/generate` becomes a facade over the suite's fal jobs | M3 | Open |
 | SA-4 | Deepgram transcription through the suite | M3 | Open |
-| SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | Open |
-| SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | Open |
-| SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | Open |
+| SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
+| SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
+| SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); no `SUITE_APP_ID`, see "M2 as built" |
 
 **GVC**
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | Open |
-| SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | Open |
+| SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
+| SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)); its 793 tests pass unchanged on it |
 | SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3 | Open |
-| SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | Open |
-| SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Open |
+| SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
+| SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
 
 ## Open questions
 
