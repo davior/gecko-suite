@@ -153,6 +153,8 @@ def _origin_allowed_for_cookie(request: Request) -> bool:
 # already configured, which is exactly what the app was trusted to do.
 _APP_ALLOWED = (
     ("POST", "/api/v1/ai/"),
+    ("GET", "/api/v1/ai/media/jobs/"),
+    ("DELETE", "/api/v1/ai/media/jobs/"),
     ("POST", "/api/v1/search/web"),
     ("GET", "/api/v1/resolve"),
     ("GET", "/api/v1/models"),

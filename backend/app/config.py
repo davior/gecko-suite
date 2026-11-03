@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # ─── http ────────────────────────────────────────────────────────────────
     cors_origin: str = ""
 
+    # ─── fal.ai ──────────────────────────────────────────────────────────────
+    # Settings rather than constants so a test, or a proxy, can point them elsewhere.
+    fal_queue_base_url: str = "https://queue.fal.run"
+    fal_api_base_url: str = "https://api.fal.ai"
+
     # ─── administration ──────────────────────────────────────────────────────
     # Comma-separated user ids or usernames, matched exactly. The token carries no admin
     # claim, so this is how anybody becomes one. Admins register the providers everyone

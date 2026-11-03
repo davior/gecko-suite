@@ -19,7 +19,8 @@ decisions that would otherwise look arbitrary.
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
 | M2 First consumers | In review. GVC ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment and embeddings ([davior/gam#58](https://github.com/davior/gam/pull/58)) are up; GAM's new assistant (SA-2) is not started. See "M2 as built" |
-| M3–M8 | Not started |
+| M3 | M3a (the fal gateway) in progress; speech and search next, as their own PRs |
+| M4–M8 | Not started |
 
 ## Why this exists
 
@@ -283,6 +284,22 @@ unchanged. TTS / STT move here; GVC's `render/tts.py` points at the suite, closi
 open decision #3, and Notes' speech routes forward. Web search for all three; personas in
 each assistant's picker.
 
+**M3a as built — a thin fal gateway.** Decided with the maintainer: the suite holds the fal
+key, runs the queue and bills; it does **not** yet take over fal's model catalogue.
+- `POST /ai/media/jobs` (`kind`, `endpoint_id`, and that endpoint's own `input`), `GET` and
+  `DELETE /ai/media/jobs/{id}`. A job is a `media_job` row holding fal's queue ids, so an app
+  resumes by job id after a restart and **never supplies a URL**: this service sends the key
+  to whatever is stored, so fal's own URLs are checked against the queue host before they are
+  kept, and the endpoint id is validated before it is spliced into one.
+- **The key comes from the caller's visible fal provider** (their own, else the shared one),
+  not from task routing: routing chooses between models, and fal's are chosen by endpoint id.
+  A job keeps following the provider it started on.
+- **Billed once.** The result is fetched, and the cost recorded, by the first poll that finds
+  fal finished; later polls read it back. The cost is fal's header quantity times fal's pricing
+  API price (exact), a derived quantity (estimated), or `None` (no price: still counted, never 0).
+- **What stays in GAM until the catalogue moves:** each endpoint's dialect (`image_url` or
+  `image_urls[]`, `"5"` or `5` seconds), its options and its request builder.
+
 **M4 — Notes cutover.** Notes' `/api/settings/ai-providers/proxy/*` routes forward to the
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`
 goes, since the suite records usage. Its settings pages link here.
@@ -328,7 +345,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 |---|---|---|---|
 | SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
 | SA-2 | The new assistant, built on `/ai/chat` + `run_agent` with GAM's own tools | M2 | Open |
-| SA-3 | `/api/generate` becomes a facade over the suite's fal jobs | M3 | Open |
+| SA-3 | `/api/generate` runs its fal jobs through the suite (thin gateway; catalogue stays in GAM for now) | M3 | Open |
 | SA-4 | Deepgram transcription through the suite | M3 | Open |
 | SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
 | SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |

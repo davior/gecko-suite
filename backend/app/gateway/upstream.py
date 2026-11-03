@@ -79,6 +79,36 @@ def post_json(
                             code="upstream_unreachable") from exc
 
 
+def request(
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    timeout: float,
+    label: str,
+    params: Optional[Mapping[str, Any]] = None,
+    sleep=time.sleep,
+) -> httpx.Response:
+    """A body-less call (GET, PUT), with `post_json`'s retries and error mapping.
+
+    For status polls, result fetches and cancels, which carry no JSON of their own.
+    """
+    try:
+        with outbound.client(timeout=split_timeout(timeout)) as http:
+            for attempt in range(MAX_ATTEMPTS):
+                response = http.request(method, url, headers=dict(headers), params=params)
+                if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
+                    return response
+                sleep(_retry_after(response, RETRY_BASE_DELAY * (2**attempt)))
+            return response
+    except httpx.TimeoutException as exc:
+        raise UpstreamError(f"{label} did not respond in time", status=504,
+                            code="upstream_timeout") from exc
+    except httpx.RequestError as exc:
+        raise UpstreamError(f"Could not reach {label} ({type(exc).__name__})",
+                            code="upstream_unreachable") from exc
+
+
 @contextmanager
 def stream_lines(
     url: str, *, headers: Mapping[str, str], body: Mapping[str, Any], read_timeout: float, label: str
