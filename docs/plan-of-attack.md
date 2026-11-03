@@ -18,7 +18,7 @@ decisions that would otherwise look arbitrary.
 |---|---|
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
-| M2 First consumers | In review. GVC ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment and embeddings ([davior/gam#58](https://github.com/davior/gam/pull/58)) are up; GAM's new assistant (SA-2) is not started. See "M2 as built" |
+| M2 First consumers | Done. GVC's assistant ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment, embeddings and new assistant ([davior/gam#58](https://github.com/davior/gam/pull/58)) are merged, behind `AI_BACKEND`. See "M2 as built" |
 | M3 | M3a (the fal gateway) in progress; speech and search next, as their own PRs |
 | M4–M8 | Not started |
 
