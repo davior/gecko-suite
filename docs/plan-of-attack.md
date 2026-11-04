@@ -23,7 +23,7 @@ decisions that would otherwise look arbitrary.
 | M4 | Done. The raw passthrough (suite #8), and Notes on the suite behind `AI_BACKEND=suite`: chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech ([#215](https://github.com/davior/gecko-notes/pull/215)), image generation ([#216](https://github.com/davior/gecko-notes/pull/216)) and the Settings notes ([#217](https://github.com/davior/gecko-notes/pull/217)). None of it has run against the real suite or a vendor yet. See "M4 as built (Notes side)" |
 | M5 | In progress. Suite side: `/ai/chat` takes a vendor and model name (see "M5 as built (suite side)"). Notes' tool planner follows in its own PR, behind a per-person switch |
 | M6 | Done, and live since 2026-11-04. Accounts and sign-in are the suite's (suite #12, #13); Notes verifies like GAM and GVC (`IDENTITY_PROVIDER=suite`, [gecko-notes#221](https://github.com/davior/gecko-notes/pull/221)). Notes' accounts were imported and the cutover followed `docs/deploying.md` §6. See "M6 as built" |
-| M7 | In progress: shared preferences |
+| M7 | Done: themes live in the suite and each app wears its own choice (suite #14, [gecko-notes#222](https://github.com/davior/gecko-notes/pull/222), [gam#63](https://github.com/davior/gam/pull/63), [gvc#42](https://github.com/davior/gvc/pull/42)). See "M7 as built". Further shared preferences are new `user_preference` keys |
 | M8 | Not started |
 
 ## Why this exists
@@ -485,9 +485,9 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SN-3 | Assistant moves from plan-as-text to tool calls on `run_agent`, keeping approval | M5 | In progress: suite side up; Notes' planner behind a per-person switch next |
 | SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Done ([#221](https://github.com/davior/gecko-notes/pull/221)), live since 2026-11-04 |
 | SN-5 | Settings → AI pages link to the suite | M4 | Merged ([gecko-notes#217](https://github.com/davior/gecko-notes/pull/217)) |
-| SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Not needed for M6 (sign-in crosses the apps by navigation and the shared cookie). Needed from M7, as part of SN-8: the theme picker calls the suite from the browser |
+| SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Done with M7: the suite's `CORS_ORIGIN` lists the apps, and each app's CSP (`connect-src`) lists the suite, since the theme picker calls it from the browser |
 | SN-7 | `AI_BACKEND`, `SUITE_BASE_URL`, `SUITE_APP_ID=notes`, `SUITE_APP_SECRET` and `SUITE_PUBLIC_URL` in `.env.example` and compose, read in `app/suite.py` (Notes has no `config.py`) | M4 | Merged ([#213](https://github.com/davior/gecko-notes/pull/213), [#217](https://github.com/davior/gecko-notes/pull/217)) |
-| SN-8 | Themes from the suite (M7): apply this app's choice (`theme.notes`), the header picker, Settings → Themes links to the suite's editor, and a shared note keeps a snapshot of its theme. CSP: `connect-src` gains the suite, `img-src` any https (backgrounds are addresses people paste) | M7 | Open |
+| SN-8 | Themes from the suite (M7): apply this app's choice (`theme.notes`), the header picker, Settings → Themes links to the suite's editor, and a shared note keeps a snapshot of its theme. CSP: `connect-src` gains the suite, `img-src` any https (backgrounds are addresses people paste) | M7 | Merged ([#222](https://github.com/davior/gecko-notes/pull/222)) |
 
 **infra** (the reverse proxy)
 
@@ -506,7 +506,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
 | SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
 | SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)); no `SUITE_APP_ID`, see "M2 as built" |
-| SA-8 | Themes from the suite (M7): the copied theme kit (`api/themes.ts`, `theme/`, `stores/appTheme.ts` with `APP='gam'`), the header picker, and the CSP (`connect-src` the suite, `img-src` any https) | M7 | Open |
+| SA-8 | Themes from the suite (M7): the copied theme kit (`api/themes.ts`, `theme/`, `stores/appTheme.ts` with `APP='gam'`), the header picker, and the CSP (`connect-src` the suite, `img-src` any https) | M7 | Merged ([davior/gam#63](https://github.com/davior/gam/pull/63)) |
 
 **GVC**
 
@@ -517,7 +517,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Merged ([davior/gvc#39](https://github.com/davior/gvc/pull/39)) |
 | SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | Merged ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
-| SV-6 | Themes from the suite (M7), as SA-8 with `APP='gvc'` | M7 | Open |
+| SV-6 | Themes from the suite (M7), as SA-8 with `APP='gvc'` | M7 | Merged ([davior/gvc#42](https://github.com/davior/gvc/pull/42)) |
 
 ## Open questions
 
