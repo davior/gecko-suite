@@ -19,6 +19,7 @@ from app.auth import CurrentUser, is_admin
 from app.config import settings
 from app.database import engine, get_session
 from app.routers import account_admin as account_admin_router
+from app.routers import themes as themes_router
 from app.routers import accounts as accounts_router
 from app.routers import apps as apps_router
 from app.routers import assignments as assignments_router
@@ -155,3 +156,5 @@ app.include_router(search_router.router, prefix=f"{API_V1}/search", tags=["searc
 app.include_router(apps_router.router, prefix=f"{API_V1}/apps", tags=["apps"])
 app.include_router(accounts_router.router, prefix=f"{API_V1}/auth", tags=["accounts"])
 app.include_router(account_admin_router.router, prefix=f"{API_V1}/admin", tags=["accounts"])
+app.include_router(themes_router.router, prefix=f"{API_V1}/themes", tags=["themes"])
+app.include_router(themes_router.public_router, prefix="/api", tags=["themes"])

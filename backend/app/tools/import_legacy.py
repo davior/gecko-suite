@@ -48,6 +48,7 @@ from cryptography.fernet import InvalidToken
 from sqlmodel import Session, select
 
 from app import crypto
+from app.clock import utcnow
 from app.config import settings
 from app.models.ai import AIModel, AIProvider, CatalogEntry, TaskAssignment
 from app.models.library import Recipe, SystemPrompt
@@ -67,6 +68,10 @@ _USAGE_VENDOR = {"fal.ai": "fal", "fal": "fal", "deepgram": "deepgram"}
 _DEFAULT_URLS = {"https://api.openai.com", "https://api.openai.com/v1", "http://localhost:11434"}
 
 
+# Notes' public address, for theme backgrounds it stored under its own /media/.
+DEFAULT_NOTES_PUBLIC_URL = "https://notes.geckopico.com"
+
+
 def derived_id(*parts: str) -> str:
     return str(uuid.uuid5(_NAMESPACE, ":".join(parts)))
 
@@ -81,6 +86,7 @@ class Report:
     recipes: int = 0
     users: int = 0
     accounts: int = 0
+    themes: int = 0
     skipped: int = 0
     warnings: list[str] = field(default_factory=list)
 
@@ -98,6 +104,7 @@ class Report:
             f"recipes imported: {self.recipes}",
             f"users created: {self.users}",
             f"accounts imported (can sign in here): {self.accounts}",
+            f"themes imported: {self.themes}",
             f"already present, skipped: {self.skipped}",
             *[f"warning: {w}" for w in self.warnings],
         ]
@@ -163,10 +170,12 @@ class LegacyProvider:
 
 
 class Importer:
-    def __init__(self, session: Session, jwt_secret: str, report: Report):
+    def __init__(self, session: Session, jwt_secret: str, report: Report,
+                 notes_public_url: str = DEFAULT_NOTES_PUBLIC_URL):
         self.session = session
         self.jwt_secret = jwt_secret
         self.report = report
+        self.notes_public_url = notes_public_url.rstrip("/")
 
     # ── helpers ──
 
@@ -233,6 +242,53 @@ class Importer:
         for row in rows(connection, "appsetting"):
             if row.get("key") in instance.DEFAULTS and self.session.get(InstanceSetting, row["key"]) is None:
                 instance.put(self.session, row["key"], bool(setting(row.get("value"))))
+
+    def import_themes(self, connection: sqlite3.Connection) -> None:
+        """Notes' themes (M7), ids kept, and each person's active one as what Notes wears.
+
+        A background Notes stored under its own `/media/` becomes an absolute address on
+        Notes, which serves that path publicly: the theme may now be drawn by any app.
+        A choice someone has already made here is never replaced.
+        """
+        from app.models.theme import Theme, UserPreference
+        from app.routers.themes import preference_key
+
+        for row in rows(connection, "theme"):
+            if self.session.get(Theme, row["id"]) is not None:
+                self.report.skipped += 1
+                continue
+            shared = bool(row.get("is_global")) or not row.get("user_id")
+            image = row.get("bg_image_url") or None
+            if image and image.startswith("/"):
+                image = f"{self.notes_public_url}{image}"
+            self.session.add(Theme(
+                id=row["id"], scope=SCOPE_INSTANCE if shared else SCOPE_USER,
+                user_id=None if shared else row["user_id"], name=row.get("name") or "Untitled",
+                mode=row.get("mode") or "light", bg_type=row.get("bg_type") or "flat",
+                bg_color1=row.get("bg_color1") or "#f0f4ff", bg_color2=row.get("bg_color2") or None,
+                bg_image_url=image, bg_image_mode=row.get("bg_image_mode") or "fill",
+                bg_blur=row.get("bg_blur") or 0.0,
+                glass_opacity=0.30 if row.get("glass_opacity") is None else row["glass_opacity"],
+                glass_blur=12.0 if row.get("glass_blur") is None else row["glass_blur"],
+                shadow_size=8.0 if row.get("shadow_size") is None else row["shadow_size"],
+                shadow_blur=16.0 if row.get("shadow_blur") is None else row["shadow_blur"],
+                created_at=parse_time(row.get("created_at")) if row.get("created_at") else utcnow(),
+            ))
+            self.report.themes += 1
+        self.session.flush()
+
+        key = preference_key("notes")
+        for row in rows(connection, "usersetting"):
+            if row.get("key") != "active_theme_id":
+                continue
+            theme_id = setting(row.get("value"))
+            theme = self.session.get(Theme, theme_id) if isinstance(theme_id, str) else None
+            if theme is None or (theme.scope == SCOPE_USER and theme.user_id != row["user_id"]):
+                continue
+            exists = self.session.exec(select(UserPreference).where(
+                UserPreference.user_id == row["user_id"], UserPreference.key == key)).first()
+            if exists is None:
+                self.session.add(UserPreference(user_id=row["user_id"], key=key, value=json.dumps(theme_id)))
 
     def find_provider(self, user_id: str, vendor: str, base_url: Optional[str], use_anthropic_api: bool,
                       api_key: str) -> Optional[AIProvider]:
@@ -418,6 +474,7 @@ class Importer:
                              is_admin=bool(row.get("is_admin")))
             self.import_account(row)
         self.import_sign_up_settings(connection)
+        self.import_themes(connection)
         for row in rows(connection, "systemprompt"):
             prompt_id = derived_id("notes", "prompt", str(row["id"]))
             if self.session.get(SystemPrompt, prompt_id) is not None:
@@ -445,12 +502,13 @@ class Importer:
             self.report.recipes += 1
 
 
-def run(session: Session, sources: dict[str, Path], jwt_secret: str, *, dry_run: bool = False) -> Report:
+def run(session: Session, sources: dict[str, Path], jwt_secret: str, *, dry_run: bool = False,
+        notes_public_url: str = DEFAULT_NOTES_PUBLIC_URL) -> Report:
     report = Report()
     if session.exec(select(CatalogEntry)).first() is None:
         report.warn("The model catalogue is empty; run `alembic upgrade head` first so imported "
                     "models get their labels, limits and prices")
-    importer = Importer(session, jwt_secret, report)
+    importer = Importer(session, jwt_secret, report, notes_public_url)
     connections = {app: open_readonly(path) for app, path in sources.items()}
     try:
         # Notes first, so its usernames and emails land on the user rows before the
@@ -480,6 +538,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--gam", type=Path, help="GAM's database (data/db/gam.db)")
     parser.add_argument("--gvc", type=Path, help="GVC's database (data/db/gvc.db)")
     parser.add_argument("--jwt-secret", help="the JWT_SECRET_KEY the apps share (default: this suite's)")
+    parser.add_argument("--notes-public-url", default=DEFAULT_NOTES_PUBLIC_URL,
+                        help="where browsers reach Notes, for theme backgrounds it stored (default: %(default)s)")
     parser.add_argument("--dry-run", action="store_true", help="report what would happen, change nothing")
     args = parser.parse_args(argv)
 
@@ -491,7 +551,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     from app.database import engine
 
     with Session(engine) as session:
-        report = run(session, sources, args.jwt_secret or settings.jwt_secret_key, dry_run=args.dry_run)
+        report = run(session, sources, args.jwt_secret or settings.jwt_secret_key, dry_run=args.dry_run,
+                     notes_public_url=args.notes_public_url)
     print(("DRY RUN, nothing written\n" if args.dry_run else "") + "\n".join(report.lines()))
     # A fingerprint of which secret was used, never the secret, for a support thread.
     print(f"jwt secret fingerprint: {hashlib.sha256((args.jwt_secret or settings.jwt_secret_key).encode()).hexdigest()[:8]}")

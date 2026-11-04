@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import favicon from '@/assets/favicon.svg'
 
 /**
  * The frame of every page a signed-out visitor sees: sign in, register, recovery. No
@@ -18,9 +19,7 @@ export default function AuthCard({
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-10 dark:bg-gray-900">
       <div className="w-full max-w-sm space-y-4">
         <div className="flex items-center justify-center gap-2">
-          <span className="text-2xl" aria-hidden="true">
-            🦎
-          </span>
+          <img src={favicon} alt="" aria-hidden="true" className="h-9 w-9" />
           <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Gecko Suite
           </span>

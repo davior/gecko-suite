@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { accountsApi } from '@/api/accounts'
 import { authApi, redirectToLogin, type User } from '@/api/auth'
 import { apiErrorCode, apiErrorMessage, clearToken, writeToken } from '@/api/client'
+import { useAppThemeStore } from '@/stores/appTheme'
 import { useRegistryStore } from '@/stores/registry'
 
 /**
@@ -71,6 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Every store holding user data, so one person's keys and spend cannot stay on
     // screen for the next.
     useRegistryStore.getState().reset()
+    useAppThemeStore.getState().reset()
     // The cookie is httpOnly, so only the server can clear it, and it is shared by every
     // app on the domain: without this, the sign-in page would find the old session
     // still there and sign the same person straight back in. Best effort, because an
