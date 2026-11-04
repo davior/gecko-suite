@@ -91,6 +91,17 @@ class Settings(BaseSettings):
     # memory for the length of the request, which is why it is bounded at all.
     stt_max_upload_mb: int = 300
 
+    # ─── text to speech ──────────────────────────────────────────────────────
+    # fal's synchronous endpoint: speech is seconds, not the minutes a video takes, so it is
+    # called directly rather than through the queue.
+    fal_run_base_url: str = "https://fal.run"
+    # One request reads one chunk of narration, not a whole script. Notes' limit, because
+    # the callers' chunking (and so their cache hits) was built around it.
+    tts_max_chars: int = 2000
+    tts_max_audio_mb: int = 25
+    # Oldest files go first past this many. The cache is best-effort, so the bound is loose.
+    tts_cache_max_files: int = 2000
+
     # ─── administration ──────────────────────────────────────────────────────
     # Comma-separated user ids or usernames, matched exactly. The token carries no admin
     # claim, so this is how anybody becomes one. Admins register the providers everyone

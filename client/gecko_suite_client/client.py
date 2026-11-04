@@ -72,6 +72,18 @@ class SuiteClient:
             raise SuiteUnavailable(0, "suite_unavailable", f"Gecko Suite could not be reached ({type(exc).__name__})") from exc
         return _data(response)
 
+    def request_raw(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Like `request`, for an answer that is not an envelope (audio). A refusal still
+        raises the same SuiteError; success hands back the response for its body and headers."""
+        headers = {**kwargs.pop("headers", {}), **self.headers}
+        try:
+            response = self._http.request(method, self._url(path), headers=headers, **kwargs)
+        except httpx.HTTPError as exc:
+            raise SuiteUnavailable(0, "suite_unavailable", f"Gecko Suite could not be reached ({type(exc).__name__})") from exc
+        if response.status_code >= 400:
+            _data(response)
+        return response
+
     def stream(self, path: str, json: dict) -> Iterator[tuple[str, dict]]:
         """POST and yield (event, data) for each Server-Sent Event."""
         import json as jsonlib

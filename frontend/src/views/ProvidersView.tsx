@@ -382,6 +382,91 @@ function ModelList({ provider, models }: { provider: Provider; models: Model[] }
   )
 }
 
+/**
+ * The voices a text-to-speech model offers and how to ask it for one.
+ *
+ * Speech is routed (`speech.tts`) to a model row, and this is what the row carries: Video
+ * Creator has no voice setting of its own to send. The request format differs per fal
+ * endpoint (`text` or `prompt`, `voice` or `voice_id`), so it is data here and not code.
+ */
+function SpeechSettings({ model }: { model: Model }) {
+  const run = useRegistryStore((s) => s.run)
+  const [voices, setVoices] = useState(() =>
+    (model.voices ?? []).map((v) => (typeof v === 'string' ? v : v.id)).join('\n')
+  )
+  const [params, setParams] = useState(() =>
+    model.params ? JSON.stringify(model.params, null, 2) : ''
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    let parsed: Record<string, unknown> = {}
+    if (params.trim()) {
+      try {
+        const value: unknown = JSON.parse(params)
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+          throw new Error('not an object')
+        }
+        parsed = value as Record<string, unknown>
+      } catch {
+        setError(
+          'The request settings must be a JSON object, like {"default_voice": "Aria"}.'
+        )
+        return
+      }
+    }
+    setError(
+      await run(() =>
+        modelsApi.update(model.id, {
+          voices: voices
+            .split('\n')
+            .map((v) => v.trim())
+            .filter(Boolean),
+          params: parsed,
+        })
+      )
+    )
+  }
+
+  const deepgram = model.vendor === 'deepgram'
+  return (
+    <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+      <label className="label" htmlFor={`voices-${model.id}`}>
+        Voices (one per line)
+      </label>
+      <textarea
+        id={`voices-${model.id}`}
+        className="input h-24 font-mono text-xs"
+        value={voices}
+        onChange={(e) => setVoices(e.target.value)}
+      />
+      <label className="label" htmlFor={`params-${model.id}`}>
+        Request settings (JSON)
+      </label>
+      <textarea
+        id={`params-${model.id}`}
+        className="input h-28 font-mono text-xs"
+        placeholder={
+          deepgram
+            ? '{"default_voice": "flux-haley-en", "expressivity": 0, "speed": 1.0}'
+            : '{"default_voice": "Aria", "text_field": "text", "voice_field": "voice"}'
+        }
+        value={params}
+        onChange={(e) => setParams(e.target.value)}
+      />
+      <p className="text-xs text-gray-500">
+        {deepgram
+          ? 'The voice is Deepgram’s model name. expressivity is -2 to 2, speed 0.85 to 1.15.'
+          : 'default_voice is used when a caller names none. text_field and voice_field are the endpoint’s own field names; extra_params are sent with every request.'}
+      </p>
+      <ErrorNote message={error} />
+      <button type="button" className="btn btn-secondary" onClick={() => void save()}>
+        Save voices and settings
+      </button>
+    </div>
+  )
+}
+
 function ModelRow({ model }: { model: Model }) {
   const run = useRegistryStore((s) => s.run)
   const [editing, setEditing] = useState(false)
@@ -459,6 +544,7 @@ function ModelRow({ model }: { model: Model }) {
           ))}
         </div>
       )}
+      {editing && model.capabilities.includes('tts') && <SpeechSettings model={model} />}
     </div>
   )
 }
