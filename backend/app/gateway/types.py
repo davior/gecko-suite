@@ -105,15 +105,19 @@ class ToolSpecIn(BaseModel):
 class ChatRequest(BaseModel):
     """One model call.
 
-    Name a `task` (routed, the usual case) or a `model_ref` (the suite's id for a model
-    the caller can see). `app` and `subject_ref` attribute the spend; `app` also picks
-    app-specific routing.
+    Name a `task` (routed, the usual case), a `model_ref` (the suite's id for a model
+    the caller can see), or a `vendor` and `model` name: how Notes' assistant names the
+    model the person picked in its own panel, resolved as the raw passthrough resolves it
+    (see `gateway/raw.find_by_name`). `app` and `subject_ref` attribute the spend; `app`
+    also picks app-specific routing.
     """
 
     model_config = _CONFIG
 
     task: Optional[str] = None
     model_ref: Optional[str] = None
+    vendor: Optional[str] = Field(default=None, max_length=40)
+    model: Optional[str] = Field(default=None, max_length=200)
     app: Optional[str] = None
     subject_ref: Optional[str] = Field(default=None, max_length=300)
     # A persona puts its system prompt first and, if it has one for this task, uses its
@@ -137,8 +141,11 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _one_target(self) -> "ChatRequest":
-        if bool(self.task) == bool(self.model_ref):
-            raise ValueError("Name exactly one of task or model_ref")
+        by_name = bool(self.vendor) or bool(self.model)
+        if by_name and not (self.vendor and self.model):
+            raise ValueError("A vendor and a model name go together")
+        if [bool(self.task), bool(self.model_ref), by_name].count(True) != 1:
+            raise ValueError("Name exactly one of task, model_ref, or vendor and model")
         return self
 
     def has_images(self) -> bool:

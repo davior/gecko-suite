@@ -321,3 +321,61 @@ def test_text_read_aloud_through_the_client_pins_what_resolved(auth_client, vend
     # Pinned to what resolved, the next chunk is the same voice; the same words are a hit.
     again = speech.speak("Hello there.", voice=first.voice, model_ref=first.model_ref)
     assert again.cached is True and again.voice == "Aria"
+
+
+# ─── naming a model by vendor and name (M5: Notes' own model picker) ─────────
+
+
+def test_a_model_named_by_vendor_and_name_runs_a_tool_turn(suite, vendors, session):
+    from app.models.usage import UsageEvent
+    from sqlmodel import select
+
+    script = iter([
+        _reply([{"type": "tool_use", "id": "t1", "name": "search_assets", "input": {"q": "owls"}}], "tool_use"),
+        _reply([{"type": "text", "text": "Done."}]),
+    ])
+    vendors.respond = lambda r: next(script)
+    chat = SuiteChat(suite, app="notes", vendor="anthropic", model_name="claude-opus-5-5")
+    assert (chat.model, chat.provider_type) == ("claude-opus-5-5", "anthropic")
+    outcome = run_agent(chat.conversation(system=[], tools=[SEARCH], prompt="Find owls"),
+                        handlers={"search_assets": lambda args: "3 hits"})
+    assert outcome.reply == "Done."
+    assert json.loads(vendors.calls[0].content)["model"] == "claude-opus-5-5"
+    events = session.exec(select(UsageEvent)).all()
+    assert events and all(e.app == "notes" and e.cost is not None for e in events)  # priced from the row
+
+
+def test_a_model_without_a_row_gets_the_catalogues_capabilities_and_no_more(suite, vendors, auth_client):
+    vendors.respond = lambda r: _reply([{"type": "text", "text": "hi"}])
+    # Known to the catalogue by family, not set up as a row: still usable for tools.
+    reply = SuiteChat(suite, vendor="anthropic", model_name="claude-opus-5-9").conversation(
+        system=[], tools=[SEARCH], prompt="x").ask()
+    assert reply.text == "hi" and json.loads(vendors.calls[-1].content)["model"] == "claude-opus-5-9"
+
+    # A name nothing knows is chat and tools only: an image is refused in words, not sent.
+    res = auth_client.post("/api/v1/ai/chat", json={
+        "vendor": "anthropic", "model": "mystery-model",
+        "messages": [{"role": "user", "content": [
+            {"type": "image", "media_type": "image/png", "data": "aGk="}, {"type": "text", "text": "what is this"}]}]})
+    assert res.status_code == 400 and "cannot see images" in res.json()["detail"]["message"]
+
+
+def test_a_vendor_with_no_provider_is_not_configured(suite, auth_client):
+    res = auth_client.post("/api/v1/ai/chat", json={
+        "vendor": "deepseek", "model": "deepseek-chat", "messages": [{"role": "user", "content": "hi"}]})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "ai_not_configured"
+
+
+@pytest.mark.parametrize("target", [
+    {"vendor": "anthropic"},                                                # a vendor alone
+    {"model": "claude-opus-5-5"},                                           # a model alone
+    {"task": "chat.assistant", "vendor": "anthropic", "model": "claude-opus-5-5"},  # two targets
+])
+def test_a_request_still_names_exactly_one_target(suite, auth_client, target):
+    res = auth_client.post("/api/v1/ai/chat", json={**target, "messages": [{"role": "user", "content": "hi"}]})
+    assert res.status_code == 422
+
+
+def test_the_package_refuses_half_a_name():
+    with pytest.raises(ValueError):
+        SuiteChat(SuiteClient(token="t", base_url="http://x"), vendor="anthropic")

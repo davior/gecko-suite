@@ -19,7 +19,7 @@ from app.providers.params import parse_extra_params
 from app.models.library import Persona
 from app.routers.library import visible_row
 from app.services.access import app_for, bad_request, not_found
-from app.services.registry import capabilities_of, load_json, resolve, usable, visible_model
+from app.services.registry import capabilities_of, catalog_entry_for, load_json, resolve, usable, visible_model
 from app.usage.ledger import record_chat
 from app.vocab import KEYLESS_VENDORS, LLM_VENDORS, TASK_REQUIRES, TASKS
 
@@ -74,13 +74,15 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
             raise _not_configured(request.task)
         model, provider = hit.model, hit.provider
         assignment_params = load_json(hit.assignment.params, {})
-    else:
+    elif request.model_ref:
         model = visible_model(session, request.model_ref, user.id)
         if model is None:
             raise not_found("model")
         provider = session.get(AIProvider, model.provider_id)
         if not usable(model, provider):
             raise bad_request("model_disabled", f"{model.label or model.model_id} is switched off")
+    else:
+        model, provider = _by_name(session, user, request.vendor, request.model)
 
     _check_capabilities(model, provider, request)
 
@@ -122,6 +124,30 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
     asked = request.max_tokens or default
     max_tokens = min(asked, model.max_tokens) if model.max_tokens else asked
     return target, request.task, max_tokens, params
+
+
+def _by_name(session: Session, user: UserCtx, vendor: str, model_id: str) -> tuple[AIModel, AIProvider]:
+    """A model named by vendor and name, as Notes' own model picker names it.
+
+    The provider is found as the raw passthrough finds it. A model with no row of its own
+    (one added in Notes after the import) gets a stand-in row, never saved, whose
+    capabilities are the catalogue's for that name, or only chat and tools when the
+    catalogue does not know it: a model is never assumed to see images it was not
+    declared to see, and the capability check below refuses that in words.
+    """
+    from app.gateway.raw import find_by_name
+
+    provider, model, _key = find_by_name(session, user, vendor=vendor, model_id=model_id)
+    if model is not None:
+        return model, provider
+    entry = catalog_entry_for(session, vendor, model_id)
+    capabilities = load_json(entry.capabilities, None) if entry else None
+    stand_in = AIModel(
+        id="", provider_id=provider.id, model_id=model_id, label=model_id,
+        capabilities=json.dumps(sorted(capabilities or ["chat", "tools"])),
+        max_tokens=entry.max_tokens if entry else None,
+    )
+    return stand_in, provider
 
 
 def _persona(session: Session, user: UserCtx, request: ChatRequest) -> Optional[Persona]:
