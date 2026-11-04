@@ -62,14 +62,20 @@ class Reply:
 
 
 class SuiteChat:
-    """A chat model reached through the suite, chosen by task routing."""
+    """A chat model reached through the suite: by task routing (the usual case), by the
+    suite's `model_ref`, or by `vendor` and `model_name`, which is how Notes names the
+    model a person picked in its own panel."""
 
     def __init__(self, client: SuiteClient, *, task: str = "chat.assistant", app: Optional[str] = None,
                  model_ref: Optional[str] = None, persona_id: Optional[str] = None,
-                 params: Optional[dict] = None, subject_ref: Optional[str] = None):
+                 params: Optional[dict] = None, subject_ref: Optional[str] = None,
+                 vendor: Optional[str] = None, model_name: Optional[str] = None):
+        if bool(vendor) != bool(model_name):
+            raise ValueError("vendor and model_name go together")
         self.client = client
-        self.task = None if model_ref else task
+        self.task = None if (model_ref or vendor) else task
         self.model_ref = model_ref
+        self.vendor, self.model_name = vendor, model_name
         self.app = app or client.app
         self.persona_id = persona_id
         self.params = params or {}
@@ -86,11 +92,11 @@ class SuiteChat:
 
     @property
     def model(self) -> str:
-        return (self.resolve() or {}).get("model_id", "")
+        return self.model_name or (self.resolve() or {}).get("model_id", "")
 
     @property
     def provider_type(self) -> str:
-        return (self.resolve() or {}).get("vendor", "")
+        return self.vendor or (self.resolve() or {}).get("vendor", "")
 
     @property
     def supports_images(self) -> bool:
@@ -127,7 +133,12 @@ class SuiteChat:
             "params": self.params,
             **extra,
         }
-        body.update({"task": self.task} if self.task else {"model_ref": self.model_ref})
+        if self.task:
+            body["task"] = self.task
+        elif self.model_ref:
+            body["model_ref"] = self.model_ref
+        else:
+            body.update({"vendor": self.vendor, "model": self.model_name})
         for key in ("app", "persona_id", "subject_ref"):
             if getattr(self, key):
                 body[key] = getattr(self, key)

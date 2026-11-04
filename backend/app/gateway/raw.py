@@ -115,6 +115,20 @@ def resolve(session: Session, user: UserCtx, *, protocol: str, vendor: str, mode
             return provider.vendor == VENDOR_OLLAMA
         return provider.vendor in OPENAI_COMPATIBLE
 
+    provider, model, key = find_by_name(session, user, vendor=vendor, model_id=model_id, fits=fits)
+    return _resolved(provider, model, key)
+
+
+def find_by_name(session: Session, user: UserCtx, *, vendor: str, model_id: str,
+                 fits=None) -> tuple[AIProvider, Optional[AIModel], str]:
+    """A provider of `vendor` the caller can use, and its row for `model_id` if it has one.
+
+    One rule for every caller that names a model as Notes does (the raw passthrough, and
+    `/ai/chat` given a vendor and model): the caller's own providers first, then shared
+    ones; among those, one with an active row for the model; failing that, the first with
+    a usable key, because the model is only a string to the vendor. 409 when none exists.
+    """
+    fits = fits or (lambda provider: provider.vendor == vendor)
     rows = session.exec(visible_providers_query(user.id).where(col(AIProvider.enabled).is_(True))
                         .order_by(col(AIProvider.created_at))).all()
     # Their own first: it is what the person chose for themselves.
@@ -132,9 +146,9 @@ def resolve(session: Session, user: UserCtx, *, protocol: str, vendor: str, mode
             AIModel.provider_id == provider.id, AIModel.model_id == model_id,
             col(AIModel.is_active).is_(True))).first()
         if model is not None:
-            return _resolved(provider, model, key)
+            return provider, model, key
     provider, key = usable[0]
-    return _resolved(provider, None, key)
+    return provider, None, key
 
 
 def _resolved(provider: AIProvider, model: Optional[AIModel], key: str) -> Resolved:
