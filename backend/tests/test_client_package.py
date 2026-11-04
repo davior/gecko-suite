@@ -239,3 +239,31 @@ def test_a_client_needs_exactly_one_way_in():
         SuiteClient("http://x")
     with pytest.raises(ValueError):
         SuiteClient("http://x", app="gam", app_secret="s")
+
+
+# ─── media ───────────────────────────────────────────────────────────────────
+
+
+def test_a_media_job_runs_through_the_client_and_comes_back_billed(auth_client, vendors):
+    """The client package against the real routes, with fal faked."""
+    from gecko_suite_client import SuiteMedia
+
+    from tests.test_media import ENDPOINT, Fal, _fal_provider
+
+    _fal_provider(auth_client)
+    fal = Fal(vendors)
+    media = SuiteMedia(SuiteClient(token="user-jwt", http=auth_client), app="gam",
+                       subject_ref="gam:asset:a1")
+
+    job = media.submit("image", ENDPOINT, {"prompt": "a harbour"})
+    assert job.status == "queued" and not job.done
+    fal.state = "COMPLETED"
+    done = media.get(job.id)
+    assert done.done and done.status == "completed"
+    assert (done.cost, done.cost_estimated, done.billable_units) == (0.04, False, "1")
+    assert done.result["images"][0]["width"] == 1024
+
+    # A new client resumes by id alone: what a restarted app does.
+    again = SuiteMedia(SuiteClient(token="user-jwt", http=auth_client)).get(job.id)
+    assert again.status == "completed"
+    assert media.cancel(job.id).status == "completed"  # already done: left alone
