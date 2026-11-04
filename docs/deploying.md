@@ -177,10 +177,107 @@ rm -r data/import
 
 Check the result on the Providers, Routing and Usage screens.
 
-## 5. App credentials (not yet)
+## 5. Connect the apps
 
-Issuing secrets for Notes, GAM and GVC (the Apps screen) waits until they are changed to
-use the suite in M2. Each one is shown once, when issued, and goes into that app's `.env`.
+Each app is switched to the suite by its own `.env`, and switched back the same way. Nothing in
+an app changes until its `AI_BACKEND` is set to `suite`.
+
+### Gecko Notes
+
+Notes in suite mode stops using its own AI keys: chat, web search, read-aloud, narration,
+transcription and image generation all go through the suite, which holds the keys and counts the
+spend. So the suite needs Notes' setup before Notes is switched. In order:
+
+**1. Bring the suite up to date** (in the suite's checkout):
+
+```bash
+git pull origin main
+```
+
+```bash
+docker compose up --build -d
+```
+
+**2. Import Notes' AI setup.** This copies its providers and keys, the fal.ai and Deepgram keys,
+prompts, recipes and usage history. It only reads the copy, and running it again adds nothing new,
+so it is safe if section 4 already ran it. Adjust the path to where Notes lives:
+
+```bash
+mkdir -p data/import
+```
+
+```bash
+sqlite3 ../gecko-notes/data/db/notes.db ".backup data/import/notes.db"
+```
+
+```bash
+docker compose exec suite-backend python -m app.tools.import_legacy --notes /app/data/import/notes.db --dry-run
+```
+
+```bash
+docker compose exec suite-backend python -m app.tools.import_legacy --notes /app/data/import/notes.db
+```
+
+```bash
+rm -r data/import
+```
+
+A key that "could not be decrypted" was saved under an older `JWT_SECRET_KEY`; enter it again on
+the Providers screen.
+
+**3. Check three screens.**
+- **Providers:** the vendors Notes chats with, with the same model names, plus fal.ai (images,
+  voices) and Deepgram (transcription).
+- **Routing:** `speech.tts` routed to a model with the `tts` capability. Without it, read-aloud
+  and narration answer "No text-to-speech model is set up".
+- **Search** (optional): Notes' search settings are not imported. Add a Brave, Tavily or SearXNG
+  backend here if Notes used one; otherwise the suite searches with DuckDuckGo.
+
+**4. Issue Notes' credential.** On the Apps screen (as an administrator), issue a secret for the
+app `notes` and copy it. It is shown once.
+
+**5. Switch Notes** (in Notes' checkout). Add to its `.env`:
+
+```
+AI_BACKEND=suite
+SUITE_APP_SECRET=<the secret from step 4>
+```
+
+`SUITE_BASE_URL` defaults to `https://suite.geckopico.com` and `SUITE_APP_ID` to `notes`; set them
+only if yours differ. `SUITE_PUBLIC_URL` is only for when `SUITE_BASE_URL` is an address a browser
+cannot open. Notes refuses to start with `AI_BACKEND=suite` and no secret, by design. Then:
+
+```bash
+git pull origin main
+```
+
+```bash
+docker compose up --build -d
+```
+
+```bash
+curl -f http://localhost:18081/api/health
+```
+
+**6. Check it.** Ask the assistant something: the answer comes back and the suite's Usage screen
+shows it under app `notes`. Read a note aloud, generate an image, run a web search from the
+assistant. Settings → AI Services in Notes now carries a note on each tab saying what the suite
+holds.
+
+**7. Optionally, tool calling.** Settings → Assistant → "Tool calling (beta)" is a per-person
+switch for the assistant planning by tool calls. Everything above works without it; switch it off
+to go straight back.
+
+**Still on Notes' own keys:** live transcription and voice mode use the Deepgram key saved in
+Notes, so leave it there.
+
+**Switching back:** set `AI_BACKEND=local` in Notes' `.env` and `docker compose up -d`. Notes' own
+keys and settings were never touched.
+
+### GAM and GVC
+
+The same idea: `AI_BACKEND=suite` in each one's `.env` (GAM also needs its `SUITE_APP_SECRET`, as
+its background jobs call as the app). Their own `docs` and `.env.example` say what each needs.
 
 ## Rolling back
 
@@ -188,6 +285,8 @@ use the suite in M2. Each one is shown once, when issued, and goes into that app
 docker compose down
 ```
 
-Nothing else depends on the suite yet, and `data/` keeps the database for next time.
+Switch every app that uses the suite back first (`AI_BACKEND=local` in its `.env`, then
+`docker compose up -d`): an app pointed at a suite that is down keeps working, but without AI.
+`data/` keeps the database for next time.
 Remove the site from `infra`'s Caddyfile too, or Caddy logs a failed upstream on every
 visit.
