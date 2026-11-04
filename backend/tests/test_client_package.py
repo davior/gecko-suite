@@ -267,3 +267,27 @@ def test_a_media_job_runs_through_the_client_and_comes_back_billed(auth_client, 
     again = SuiteMedia(SuiteClient(token="user-jwt", http=auth_client)).get(job.id)
     assert again.status == "completed"
     assert media.cancel(job.id).status == "completed"  # already done: left alone
+
+
+# ─── speech ──────────────────────────────────────────────────────────────────
+
+
+def test_audio_goes_through_the_client_and_comes_back_as_a_transcript(auth_client, vendors):
+    from gecko_suite_client import SuiteSpeech
+
+    from tests.test_speech import AUDIO, UTTERANCES, _deepgram_provider
+
+    speech = SuiteSpeech(SuiteClient(token="user-jwt", http=auth_client), app="gam")
+    assert speech.transcribe_ready() is False
+    _deepgram_provider(auth_client)
+    assert speech.transcribe_ready() is True
+
+    import httpx
+
+    vendors.respond = lambda request: httpx.Response(200, json=UTTERANCES)
+    transcript = speech.transcribe(AUDIO, model="nova-3", subject_ref="gam:asset:a1")
+    assert transcript.language == "en" and transcript.duration_seconds == 12.3
+    assert [s.text for s in transcript.segments] == ["Hello there.", "Right."]
+    assert transcript.segments[0].words[0].text == "Hello" and transcript.segments[1].speaker == 1
+    # The audio went as the body with its own content type, and the credential survived it.
+    assert vendors.calls[0].content == AUDIO and vendors.calls[0].headers["content-type"] == "audio/flac"

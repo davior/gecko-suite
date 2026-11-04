@@ -63,8 +63,11 @@ class SuiteClient:
 
     def request(self, method: str, path: str, **kwargs) -> Any:
         """Call the suite and return the envelope's `data`, or raise a SuiteError."""
+        # A caller's own headers (a raw body's Content-Type) go with the credential's, never
+        # in place of them.
+        headers = {**kwargs.pop("headers", {}), **self.headers}
         try:
-            response = self._http.request(method, self._url(path), headers=self.headers, **kwargs)
+            response = self._http.request(method, self._url(path), headers=headers, **kwargs)
         except httpx.HTTPError as exc:
             raise SuiteUnavailable(0, "suite_unavailable", f"Gecko Suite could not be reached ({type(exc).__name__})") from exc
         return _data(response)

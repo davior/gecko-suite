@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     fal_queue_base_url: str = "https://queue.fal.run"
     fal_api_base_url: str = "https://api.fal.ai"
 
+    # ─── Deepgram ────────────────────────────────────────────────────────────
+    deepgram_base_url: str = "https://api.deepgram.com"
+    # What one transcription request may carry. GAM sends mono FLAC, about 20 MB an hour, so
+    # this is many hours; past it the caller is told to send the recording in parts. Held in
+    # memory for the length of the request, which is why it is bounded at all.
+    stt_max_upload_mb: int = 300
+
     # ─── administration ──────────────────────────────────────────────────────
     # Comma-separated user ids or usernames, matched exactly. The token carries no admin
     # claim, so this is how anybody becomes one. Admins register the providers everyone

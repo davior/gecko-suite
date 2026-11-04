@@ -154,6 +154,7 @@ def _origin_allowed_for_cookie(request: Request) -> bool:
 _APP_ALLOWED = (
     ("POST", "/api/v1/ai/"),
     ("GET", "/api/v1/ai/media/jobs/"),
+    ("GET", "/api/v1/ai/speech/"),
     ("DELETE", "/api/v1/ai/media/jobs/"),
     ("POST", "/api/v1/search/web"),
     ("GET", "/api/v1/resolve"),
