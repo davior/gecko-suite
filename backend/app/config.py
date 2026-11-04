@@ -51,11 +51,39 @@ class Settings(BaseSettings):
     # without it an unset secret would sail past _reject_weak_secret.
     jwt_secret_key: str = Field(default="", validate_default=True)
     jwt_algorithm: str = "HS256"
-    # The cookie gecko-notes sets on the parent domain. Read only, until M6.
+    # The session cookie on the parent domain, which every app in the suite reads. Notes
+    # set it until M6; from M6 the suite's sign-in sets it too, with the same name, domain
+    # and lifetime, so either issuer's cookie signs a person in everywhere.
     auth_cookie_name: str = "gecko_session"
-    # Where an unauthenticated visitor is sent to sign in, until the suite has its own
-    # sign-in page (M6).
+    # ".geckopico.com" in production, so the cookie reaches every app's subdomain; empty
+    # for a host-only cookie in development. Must be the value Notes uses.
+    auth_cookie_domain: str = ""
+    # Only false for local http development: a browser drops a Secure cookie over http.
+    auth_cookie_secure: bool = True
+    # How long a session lasts. Notes' 30 days, so a token from either issuer ends alike.
+    access_token_days: int = 30
+    # Where an unauthenticated visitor is sent to sign in. Notes until the cutover (M6);
+    # pointing it at the suite's own address is how the suite takes over sign-in.
     notes_base_url: str = "https://notes.geckopico.com"
+    # Where a `?redirect=` after signing in may lead: these origins (comma-separated) and
+    # the suite's own. Anything else lands on the suite, so the sign-in page cannot be used
+    # to bounce someone to a look-alike site.
+    login_redirect_origins: str = ""
+
+    # ─── email (M6) ──────────────────────────────────────────────────────────
+    # Verification, password reset and emailed sign-in codes. Off until SMTP_HOST and
+    # SMTP_FROM are set: then new accounts skip verification, and links and codes are
+    # logged instead of sent, so every flow still works in development. Notes' names.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout: int = 20
+    # The suite's public address, for the links in those emails.
+    app_base_url: str = "http://localhost:5176"
 
     # ─── secrets at rest ─────────────────────────────────────────────────────
     # Comma-separated Fernet keys. The first encrypts; every one of them decrypts, so a
@@ -165,6 +193,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.cors_origin.split(",") if o.strip()]
+
+    @property
+    def redirect_origins(self) -> List[str]:
+        return [o.strip().rstrip("/") for o in self.login_redirect_origins.split(",") if o.strip()]
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.smtp_host.strip() and self.smtp_from.strip())
 
     @property
     def admin_user_list(self) -> List[str]:
