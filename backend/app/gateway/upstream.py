@@ -79,6 +79,33 @@ def post_json(
                             code="upstream_unreachable") from exc
 
 
+def post_bytes(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    content: bytes,
+    timeout: float,
+    label: str,
+    params: Optional[Mapping[str, Any]] = None,
+    sleep=time.sleep,
+) -> httpx.Response:
+    """POST a raw body (audio), with `post_json`'s retries and error mapping."""
+    try:
+        with outbound.client(timeout=split_timeout(timeout)) as http:
+            for attempt in range(MAX_ATTEMPTS):
+                response = http.post(url, headers=dict(headers), content=content, params=params)
+                if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
+                    return response
+                sleep(_retry_after(response, RETRY_BASE_DELAY * (2**attempt)))
+            return response
+    except httpx.TimeoutException as exc:
+        raise UpstreamError(f"{label} did not respond in time", status=504,
+                            code="upstream_timeout") from exc
+    except httpx.RequestError as exc:
+        raise UpstreamError(f"Could not reach {label} ({type(exc).__name__})",
+                            code="upstream_unreachable") from exc
+
+
 def request(
     method: str,
     url: str,
