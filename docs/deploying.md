@@ -279,6 +279,96 @@ keys and settings were never touched.
 The same idea: `AI_BACKEND=suite` in each one's `.env` (GAM also needs its `SUITE_APP_SECRET`, as
 its background jobs call as the app). Their own `docs` and `.env.example` say what each needs.
 
+## 6. Move sign-in to the suite
+
+Until now Gecko Notes signs everyone in, and the suite, GAM and GVC check its token. This
+step makes the suite the place where accounts live: sign-in, registration, password
+recovery, two-step verification and the Users screen. Notes becomes a checker like the
+others. Nobody is signed out: both sign the same token with the same `JWT_SECRET_KEY`, so
+a session from either side keeps working everywhere. Each step below is undone by putting
+the old value back.
+
+Needs: the suite at the version with accounts (M6a and M6b) and Notes with
+`IDENTITY_PROVIDER` (M6c), both deployed.
+
+**1. Check the suite's account settings.** In the suite's `.env`, `AUTH_COOKIE_DOMAIN` must be
+exactly Notes' (e.g. `.geckopico.com`), or a sign-in at the suite never reaches the other
+apps. `LOGIN_REDIRECT_ORIGINS` lists the apps it may send people back to, and `SMTP_*` lets
+it send reset links (copy Notes' values). Rebuild after changing any of them.
+
+**2. Bring the accounts across.** The importer copies every Notes account by id, with its
+password (the same password works), admin flag, email verification and two-step settings,
+and Notes' two sign-up switches. Accounts already set up in the suite are never
+overwritten, so it is safe to run again. Take a fresh copy, as in section 4:
+
+```bash
+mkdir -p data/import
+```
+
+```bash
+sqlite3 ../gecko-notes/data/db/notes.db ".backup data/import/notes.db"
+```
+
+```bash
+docker compose exec suite-backend python -m app.tools.import_legacy --notes /app/data/import/notes.db --dry-run
+```
+
+```bash
+docker compose exec suite-backend python -m app.tools.import_legacy --notes /app/data/import/notes.db
+```
+
+```bash
+rm -r data/import
+```
+
+A warning that two-step verification was switched off for someone means their
+authenticator secret could not be read (it was written under an older `JWT_SECRET_KEY`);
+they sign in with their password and set it up again on the Account page.
+
+**3. Try it before switching anyone.** Open `https://suite.geckopico.com/login` in a private
+window and sign in with a Notes account (and its authenticator, if it has one). The Users
+screen should list everyone. Then, in the same window, open GAM or GVC: you should already
+be signed in, because the suite set the shared cookie. (Not Notes yet: until step 4 it keeps
+its own sign-in and does not look at the cookie.) If GAM asks you to sign in, the cookie
+domains differ: fix step 1 before going on.
+
+**4. Switch Notes.** In Notes' `.env`:
+
+```bash
+IDENTITY_PROVIDER=suite
+SUITE_PUBLIC_URL=https://suite.geckopico.com
+```
+
+Then, in Notes:
+
+```bash
+docker compose up -d
+```
+
+Notes' login, registration and recovery pages now send people to the suite, and its
+account settings link there. Someone signed in to Notes stays signed in.
+
+**5. Switch the sign-in links of the suite, GAM and GVC.** In each one's `.env`:
+
+```bash
+NOTES_BASE_URL=https://suite.geckopico.com
+```
+
+Then `docker compose up -d` in each. (Without this they still work: they send people to
+Notes, which hands them on to the suite. This only saves the extra hop.)
+
+**6. Verify.** In a private window: open GAM, which should send you to the suite's sign-in
+and back to GAM once signed in; then open Notes and GVC, which should need no second
+sign-in. Sign out in any of them and reload the others: they should ask you to sign in.
+
+**Undo** in reverse order: `NOTES_BASE_URL` back to Notes' address in the three apps, then
+`IDENTITY_PROVIDER=notes` in Notes, restarting each. Passwords changed in the suite since the
+cutover are not copied back to Notes: those people use their old Notes password again.
+
+**A limit to know:** a session lasts 30 days wherever it is checked. Disabling someone on
+the Users screen stops them signing in again, but a session they already hold keeps working
+in Notes, GAM and GVC until it expires. That was already true with Notes signing people in.
+
 ## Rolling back
 
 ```bash

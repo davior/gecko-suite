@@ -22,7 +22,7 @@ decisions that would otherwise look arbitrary.
 | M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged (suite #5–#7; GAM [#59](https://github.com/davior/gam/pull/59), [#60](https://github.com/davior/gam/pull/60), [#61](https://github.com/davior/gam/pull/61); GVC [#39](https://github.com/davior/gvc/pull/39), [#40](https://github.com/davior/gvc/pull/40)). None of it has run against real fal, Deepgram or a search backend yet |
 | M4 | Done. The raw passthrough (suite #8), and Notes on the suite behind `AI_BACKEND=suite`: chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech ([#215](https://github.com/davior/gecko-notes/pull/215)), image generation ([#216](https://github.com/davior/gecko-notes/pull/216)) and the Settings notes ([#217](https://github.com/davior/gecko-notes/pull/217)). None of it has run against the real suite or a vendor yet. See "M4 as built (Notes side)" |
 | M5 | In progress. Suite side: `/ai/chat` takes a vendor and model name (see "M5 as built (suite side)"). Notes' tool planner follows in its own PR, behind a per-person switch |
-| M6 | In progress. M6a, accounts in the suite's backend: see "M6a as built". Nothing changes for anyone until the cutover (M6d) |
+| M6 | Built: accounts and sign-in in the suite (M6a, M6b), Notes as a verifier behind `IDENTITY_PROVIDER` ([gecko-notes#221](https://github.com/davior/gecko-notes/pull/221)), and the cutover steps (`docs/deploying.md` §6). See "M6 as built". Nothing changes until the cutover is done |
 | M7–M8 | Not started |
 
 ## Why this exists
@@ -414,6 +414,17 @@ only in suite mode (local mode keeps the text plan until M8).
 (D7). Notes becomes a verifier like GAM and GVC. Possible follow-up: RS256, so apps verify
 with a public key and stop sharing a signing secret.
 
+**M6 as built.** M6a, below, is the suite's backend. **M6b** is its frontend: sign-in (with the
+second step), registration, recovery and email confirmation at Notes' own paths, an Account
+page and an admin Users screen. Sign-in moves by one setting: `redirectToLogin` uses the suite's
+own `/login` only when `NOTES_BASE_URL` is the suite's address. **M6c** (Notes, behind
+`IDENTITY_PROVIDER=suite`) creates a passwordless row with default settings for anyone new on
+their first request, keeps name, email and admin flag in step with the token, answers 410 on
+every account-changing route, and trades the shared cookie for a token before handing off to
+the suite (stopping, with an explanation, if that loops). **M6d** is `docs/deploying.md` §6.
+Known limit: a 30-day token stays valid wherever it is checked, so disabling someone takes
+effect as their session expires; shorter tokens or RS256 are the follow-up.
+
 **M6a as built (suite backend).** Decided: a reversible cutover by config, account admin in
 the suite (Notes keeps its per-user data views), HS256 kept.
 - **Ported from Notes, not rewritten:** its auth routes under `/api/v1/auth` (register, login and
@@ -453,7 +464,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SN-1 | Proxy routes (`/api/settings/ai-providers/proxy/*`) forward to the suite's raw passthrough; drop `_record_ai_usage` | M4 | Merged ([gecko-notes#213](https://github.com/davior/gecko-notes/pull/213)) |
 | SN-2 | Speech, image generation and web search call the suite | M3 / M4 | Merged: search [#214](https://github.com/davior/gecko-notes/pull/214), speech [#215](https://github.com/davior/gecko-notes/pull/215), images [#216](https://github.com/davior/gecko-notes/pull/216). Live transcription and voice mode stay on Notes' key |
 | SN-3 | Assistant moves from plan-as-text to tool calls on `run_agent`, keeping approval | M5 | In progress: suite side up; Notes' planner behind a per-person switch next |
-| SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Open |
+| SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Built behind `IDENTITY_PROVIDER=suite` ([#221](https://github.com/davior/gecko-notes/pull/221)); live at the cutover |
 | SN-5 | Settings → AI pages link to the suite | M4 | Merged ([gecko-notes#217](https://github.com/davior/gecko-notes/pull/217)) |
 | SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open; not needed yet: Notes calls the suite server-side and only links to it. Revisit with M6 |
 | SN-7 | `AI_BACKEND`, `SUITE_BASE_URL`, `SUITE_APP_ID=notes`, `SUITE_APP_SECRET` and `SUITE_PUBLIC_URL` in `.env.example` and compose, read in `app/suite.py` (Notes has no `config.py`) | M4 | Merged ([#213](https://github.com/davior/gecko-notes/pull/213), [#217](https://github.com/davior/gecko-notes/pull/217)) |
