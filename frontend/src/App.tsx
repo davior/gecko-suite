@@ -19,10 +19,26 @@ import UsageView from '@/views/UsageView'
 import UsersView from '@/views/UsersView'
 import { loadConfig } from '@/api/config'
 import { setUnauthorizedHandler } from '@/api/client'
+import { useAppThemeStore } from '@/stores/appTheme'
 import { useAuthStore } from '@/stores/auth'
+import ThemeBackdrop from '@/theme/ThemeBackdrop'
+import { applyThemeToDom, cachedTheme } from '@/theme/apply'
+import ThemesView from '@/views/ThemesView'
 
 export default function App() {
   const bootstrap = useAuthStore((s) => s.bootstrap)
+  const status = useAuthStore((s) => s.status)
+  const loadTheme = useAppThemeStore((s) => s.load)
+
+  // The last theme this browser wore, before anything else draws: no flash of plain
+  // light while the suite is asked. Signing out clears it.
+  useEffect(() => {
+    applyThemeToDom(cachedTheme())
+  }, [])
+
+  useEffect(() => {
+    if (status === 'authenticated') void loadTheme()
+  }, [status, loadTheme])
 
   useEffect(() => {
     void bootstrap()
@@ -49,25 +65,29 @@ export default function App() {
   )
 
   return (
-    <Routes>
-      {/* Signed-out pages. The paths are Notes' own, so the links in mail (built from
+    <>
+      <ThemeBackdrop />
+      <Routes>
+        {/* Signed-out pages. The paths are Notes' own, so the links in mail (built from
           APP_BASE_URL) and every app's `${NOTES_BASE_URL}/login?redirect=` land on the
           right page once NOTES_BASE_URL points here. */}
-      <Route path="/login" element={<LoginView />} />
-      <Route path="/register" element={<RegisterView />} />
-      <Route path="/forgot-password" element={<ForgotPasswordView />} />
-      <Route path="/reset-password" element={<ResetPasswordView />} />
-      <Route path="/verify-email" element={<VerifyEmailView />} />
-      <Route path="/" element={<Navigate to="/providers" replace />} />
-      <Route path="/providers" element={page(<ProvidersView />)} />
-      <Route path="/routing" element={page(<RoutingView />)} />
-      <Route path="/library" element={page(<LibraryView />)} />
-      <Route path="/search" element={page(<SearchView />)} />
-      <Route path="/usage" element={page(<UsageView />)} />
-      <Route path="/apps" element={page(<AppsView />)} />
-      <Route path="/account" element={page(<AccountView />)} />
-      <Route path="/users" element={page(<UsersView />)} />
-      <Route path="*" element={<Navigate to="/providers" replace />} />
-    </Routes>
+        <Route path="/login" element={<LoginView />} />
+        <Route path="/register" element={<RegisterView />} />
+        <Route path="/forgot-password" element={<ForgotPasswordView />} />
+        <Route path="/reset-password" element={<ResetPasswordView />} />
+        <Route path="/verify-email" element={<VerifyEmailView />} />
+        <Route path="/" element={<Navigate to="/providers" replace />} />
+        <Route path="/providers" element={page(<ProvidersView />)} />
+        <Route path="/routing" element={page(<RoutingView />)} />
+        <Route path="/library" element={page(<LibraryView />)} />
+        <Route path="/search" element={page(<SearchView />)} />
+        <Route path="/usage" element={page(<UsageView />)} />
+        <Route path="/apps" element={page(<AppsView />)} />
+        <Route path="/account" element={page(<AccountView />)} />
+        <Route path="/users" element={page(<UsersView />)} />
+        <Route path="/themes" element={page(<ThemesView />)} />
+        <Route path="*" element={<Navigate to="/providers" replace />} />
+      </Routes>
+    </>
   )
 }

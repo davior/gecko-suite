@@ -369,6 +369,26 @@ cutover are not copied back to Notes: those people use their old Notes password 
 the Users screen stops them signing in again, but a session they already hold keeps working
 in Notes, GAM and GVC until it expires. That was already true with Notes signing people in.
 
+## 7. Themes
+
+Themes live in the suite (its **Themes** page), and each app wears its own choice, picked from
+the palette in that app's header. The apps' pages ask the suite for their theme directly, so:
+
+1. In the suite's `.env`, `CORS_ORIGIN` lists the three apps (comma-separated, exact):
+
+   ```bash
+   CORS_ORIGIN=https://notes.geckopico.com,https://assets.geckopico.com,https://gvc.geckopico.com
+   ```
+
+   Then `docker compose up -d`. An app missing from it shows its themes but cannot save a
+   choice ("Could not save that choice").
+2. To bring Notes' themes across, with each person's current one as what Notes wears, run the
+   importer again as in section 6 step 2 (it skips everything already imported). Theme
+   backgrounds Notes stored stay on Notes, at `https://notes.geckopico.com/media/…`; pass
+   `--notes-public-url` if Notes lives elsewhere.
+3. Deploy the apps' theme changes (each app's PR says what it needs). Until then they look as
+   they do now.
+
 ## Rolling back
 
 ```bash

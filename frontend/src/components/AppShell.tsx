@@ -5,6 +5,7 @@ import {
   KeyRound,
   LogOut,
   Moon,
+  Palette,
   Route,
   Search,
   Sun,
@@ -12,8 +13,11 @@ import {
   Users,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
+import { useAppThemeStore } from '@/stores/appTheme'
 import { useAuthStore } from '@/stores/auth'
+import ThemePicker from '@/theme/ThemePicker'
 import { useThemeStore } from '@/stores/theme'
+import favicon from '@/assets/favicon.svg'
 
 interface Props {
   children: ReactNode
@@ -25,6 +29,7 @@ const NAV = [
   { to: '/library', label: 'Prompts & personas', icon: Users },
   { to: '/search', label: 'Web search', icon: Search },
   { to: '/usage', label: 'Usage', icon: Activity },
+  { to: '/themes', label: 'Themes', icon: Palette },
 ]
 
 /** The frame every view sits in, as in GVC: one component, so views cannot drift apart. */
@@ -33,6 +38,8 @@ export default function AppShell({ children }: Props) {
   const signOut = useAuthStore((s) => s.signOut)
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggle)
+  // A worn theme brings its own light or dark, so the toggle would only fight it.
+  const wearing = useAppThemeStore((s) => s.selected !== null)
   const nav = user?.is_admin
     ? [
         ...NAV,
@@ -45,9 +52,7 @@ export default function AppShell({ children }: Props) {
     <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
       <header className="shrink-0 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center gap-3">
-          <span className="text-xl" aria-hidden="true">
-            🦎
-          </span>
+          <img src={favicon} alt="" aria-hidden="true" className="h-7 w-7" />
           <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             Gecko Suite
           </h1>
@@ -66,20 +71,23 @@ export default function AppShell({ children }: Props) {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="btn btn-ghost p-2"
-              aria-label={
-                theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
-              }
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </button>
+            {user && <ThemePicker editUrl="/themes" />}
+            {!wearing && (
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="btn btn-ghost p-2"
+                aria-label={
+                  theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
+                }
+              >
+                {theme === 'dark' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </button>
+            )}
             {user && (
               <>
                 <NavLink
