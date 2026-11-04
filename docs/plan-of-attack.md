@@ -19,8 +19,8 @@ decisions that would otherwise look arbitrary.
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
 | M2 First consumers | Done. GVC's assistant ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment, embeddings and new assistant ([davior/gam#58](https://github.com/davior/gam/pull/58)) are merged, behind `AI_BACKEND`. See "M2 as built" |
-| M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged. None of it has run against real fal, Deepgram or a search backend yet |
-| M4 | M4a (the raw passthrough, AI chat only) is built on the suite side; Notes forwards to it in its own PR. Speech, image and search for Notes (SN-2) and the settings pages (SN-5) follow |
+| M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged (suite #5–#7; GAM [#59](https://github.com/davior/gam/pull/59), [#60](https://github.com/davior/gam/pull/60), [#61](https://github.com/davior/gam/pull/61); GVC [#39](https://github.com/davior/gvc/pull/39), [#40](https://github.com/davior/gvc/pull/40)). None of it has run against real fal, Deepgram or a search backend yet |
+| M4 | Done. The raw passthrough (suite #8), and Notes on the suite behind `AI_BACKEND=suite`: chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech ([#215](https://github.com/davior/gecko-notes/pull/215)), image generation ([#216](https://github.com/davior/gecko-notes/pull/216)) and the Settings notes ([#217](https://github.com/davior/gecko-notes/pull/217)). None of it has run against the real suite or a vendor yet. See "M4 as built (Notes side)" |
 | M5–M8 | Not started |
 
 ## Why this exists
@@ -316,7 +316,7 @@ an app can decline to queue work that cannot succeed (GAM's upload chain). Decis
 - **Text to speech is M3b-2**, and *is* routed (`speech.tts` to a model with its voice and request
   format as its params), because Video Creator has no voice setting of its own to send.
 
-**M3b-2 as built (suite side) — text to speech, routed.** `POST /ai/speech/tts` answers with the
+**M3b-2 as built — text to speech, routed.** `POST /ai/speech/tts` answers with the
 audio itself (so a caller can hand it to ffmpeg) and the facts about it as headers:
 `X-Speech-Provider`, `X-Speech-Model`, `X-Speech-Voice`, `X-Speech-Cached`. Ported from Notes'
 `synthesize_tts_bytes`: two engines (Deepgram Flux, fal.ai's endpoints), the 2,000-character limit,
@@ -338,6 +338,10 @@ the audio cache, usage in characters. Decisions:
   quantity, so its characters are recorded and its cost is unknown, never 0.
 - **fal's audio is fetched without the key**, from a URL checked for being https and public.
 
+**M3c as built — web search and personas in the assistants.** Both assistants are offered the
+suite's `web_search` tool where the suite is there, and ask as a persona chosen per turn and kept
+on the turn row, so a rerun is asked as the same one: GAM [#61](https://github.com/davior/gam/pull/61), GVC [#40](https://github.com/davior/gvc/pull/40).
+
 **M4 — Notes cutover.** Notes' `/api/settings/ai-providers/proxy/*` routes forward to the
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`
 goes, since the suite records usage. Its settings pages link here.
@@ -358,8 +362,35 @@ goes, since the suite records usage. Its settings pages link here.
   `web_search*` tool**, and only to Anthropic itself.
 - **Usage is recorded here once per call**, with cache reads and writes priced at their
   own rates (Notes priced them as input). `app` and `subject_ref` are optional body fields.
-- **Not done yet:** Notes' speech, image generation and web search (SN-2) and its settings
-  pages (SN-5). They are separate PRs, as the "AI chat only" scope was chosen.
+- Notes' speech, image generation and web search (SN-2) and its settings pages (SN-5)
+  followed as separate PRs, as the "AI chat only" scope was chosen. See below.
+
+**M4 as built (Notes side).** Chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech
+([#215](https://github.com/davior/gecko-notes/pull/215)), images ([#216](https://github.com/davior/gecko-notes/pull/216)) and Settings ([#217](https://github.com/davior/gecko-notes/pull/217)), each behind
+`AI_BACKEND=suite`, with `local` unchanged. What a later reader would otherwise rediscover:
+
+- **Everything Notes knows about the suite is `app/suite.py`.** Notes has no `config.py`, so
+  its settings are read from the environment when used (which also lets tests set them).
+  `suite.validate()` at startup refuses `suite` without `SUITE_APP_SECRET`, rather than
+  failing every call.
+- **Always Notes' app credential, on the user's behalf, never the browser's token.** The
+  assistant worker and the render and transcription jobs outlive the request that queued them.
+- **The local provider row is still looked up**, so ownership (404) and protocol (400) checks
+  are unchanged; only its vendor and the model name go to the suite.
+- **Speech:** a render sends no pin on its first chunk and then sends back the `model_ref` and
+  voice the suite resolved. Notes' `/speech/tts` keeps its pin contract for other apps, with
+  `X-Speech-Provider` now an opaque suite model ref. There is no fallback to another engine.
+- **Images:** Notes keeps its model list, size presets and `build_fal_image_body`; the suite is
+  the key, the queue and the bill. A job not finished in 180 s is cancelled, not left billing.
+- **Notes records no usage in this mode**; the suite does.
+- **Still on Notes' own keys:** live transcription and voice mode (the suite has no streaming
+  speech to text), and the fal admin key behind the usage readouts on Notes' Images tab.
+- **Found while checking #217 in a browser, fixed there:** the UI gated read-aloud, dictation
+  and the image form on a fal key *saved in Notes*, so they were hidden in suite mode for anyone
+  without one. The speech and image settings now also report `via_suite`.
+- **Not done:** a vendor or key added in Notes after the import must also be added in the suite
+  (a new *model* of a known vendor needs nothing, see M4a). Notes' web search settings are not
+  imported: a Brave, Tavily or SearXNG backend must be added on the suite's Search screen.
 
 **M5 — Notes assistant on tool calls.** As "Tool calling" item 3.
 
@@ -382,46 +413,47 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SN-1 | Proxy routes (`/api/settings/ai-providers/proxy/*`) forward to the suite's raw passthrough; drop `_record_ai_usage` | M4 | Open |
-| SN-2 | Speech, image generation and web search call the suite | M3 / M4 | Open |
+| SN-1 | Proxy routes (`/api/settings/ai-providers/proxy/*`) forward to the suite's raw passthrough; drop `_record_ai_usage` | M4 | Merged ([gecko-notes#213](https://github.com/davior/gecko-notes/pull/213)) |
+| SN-2 | Speech, image generation and web search call the suite | M3 / M4 | Merged: search [#214](https://github.com/davior/gecko-notes/pull/214), speech [#215](https://github.com/davior/gecko-notes/pull/215), images [#216](https://github.com/davior/gecko-notes/pull/216). Live transcription and voice mode stay on Notes' key |
 | SN-3 | Assistant moves from plan-as-text to tool calls on `run_agent`, keeping approval | M5 | Open |
 | SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Open |
-| SN-5 | Settings → AI pages link to the suite | M4 | Open |
-| SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open |
-| SN-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=notes` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example` | M4 | Open |
+| SN-5 | Settings → AI pages link to the suite | M4 | Merged ([gecko-notes#217](https://github.com/davior/gecko-notes/pull/217)) |
+| SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open; not needed yet: Notes calls the suite server-side and only links to it. Revisit with M6 |
+| SN-7 | `AI_BACKEND`, `SUITE_BASE_URL`, `SUITE_APP_ID=notes`, `SUITE_APP_SECRET` and `SUITE_PUBLIC_URL` in `.env.example` and compose, read in `app/suite.py` (Notes has no `config.py`) | M4 | Merged ([#213](https://github.com/davior/gecko-notes/pull/213), [#217](https://github.com/davior/gecko-notes/pull/217)) |
 
 **infra** (the reverse proxy)
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SI-1 | A `suite.geckopico.com` site in the `Caddyfile`, proxying to `suite-frontend:80` (see `docs/deploying.md`) | M1 | PR open ([davior/infra#2](https://github.com/davior/infra/pull/2)) |
+| SI-1 | A `suite.geckopico.com` site in the `Caddyfile`, proxying to `suite-frontend:80` (see `docs/deploying.md`) | M1 | Merged ([davior/infra#2](https://github.com/davior/infra/pull/2)) |
 
 **GAM**
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
-| SA-2 | The new assistant, built on `/ai/chat` + `run_agent` with GAM's own tools | M2 | Open |
-| SA-3 | `/api/generate` runs its fal jobs through the suite (thin gateway; catalogue stays in GAM for now) | M3 | Open |
-| SA-4 | Deepgram transcription through the suite | M3b | Suite side up ([davior/gecko-suite#6](https://github.com/davior/gecko-suite/pull/6)); GAM side after |
-| SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
-| SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
-| SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); no `SUITE_APP_ID`, see "M2 as built" |
+| SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
+| SA-2 | The new assistant, built on `/ai/chat` + `run_agent` with GAM's own tools | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
+| SA-3 | `/api/generate` runs its fal jobs through the suite (thin gateway; catalogue stays in GAM for now) | M3 | Merged ([davior/gam#59](https://github.com/davior/gam/pull/59)) |
+| SA-4 | Deepgram transcription through the suite | M3b | Merged (suite #6, [davior/gam#60](https://github.com/davior/gam/pull/60)) |
+| SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
+| SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
+| SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | Merged ([davior/gam#58](https://github.com/davior/gam/pull/58)); no `SUITE_APP_ID`, see "M2 as built" |
 
 **GVC**
 
 | Id | Change | Milestone | Status |
 |---|---|---|---|
-| SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
-| SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)); its 793 tests pass unchanged on it |
-| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Merged |
-| SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
+| SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | Merged ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
+| SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | Merged ([davior/gvc#38](https://github.com/davior/gvc/pull/38)); its 793 tests pass unchanged on it |
+| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Merged ([davior/gvc#39](https://github.com/davior/gvc/pull/39)) |
+| SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | Merged ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
 
 ## Open questions
 
 1. **Streaming through two hops.** Notes' browser streams from Notes, which would stream
-   from the suite. Fine on one host; worth measuring before M4.
+   from the suite. Fine on one host; M4 shipped without measuring it, so measure on the first
+   live deployment.
 2. **Per-app spending limits.** The ledger makes them possible; nothing asks for them
    yet.
 3. **Embedding dimensions.** GAM asks for 512 dimensions from a model whose native size is
