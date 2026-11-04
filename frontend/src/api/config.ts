@@ -14,7 +14,12 @@ import client from '@/api/client'
  */
 
 export interface ClientConfig {
+  /** Where people sign in. Notes until the M6 cutover; this suite's own URL after it. */
   notes_base_url: string
+  /** Origins a `?redirect=` after signing in here may lead to. */
+  login_redirect_origins: string[]
+  /** Whether the suite can send mail: recovery and email codes need it. */
+  email_enabled: boolean
 }
 
 interface DataResponse<T> {

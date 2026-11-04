@@ -8,6 +8,7 @@ import {
   Route,
   Search,
   Sun,
+  UserCog,
   Users,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
@@ -32,7 +33,13 @@ export default function AppShell({ children }: Props) {
   const signOut = useAuthStore((s) => s.signOut)
   const theme = useThemeStore((s) => s.theme)
   const toggleTheme = useThemeStore((s) => s.toggle)
-  const nav = user?.is_admin ? [...NAV, { to: '/apps', label: 'Apps', icon: Boxes }] : NAV
+  const nav = user?.is_admin
+    ? [
+        ...NAV,
+        { to: '/apps', label: 'Apps', icon: Boxes },
+        { to: '/users', label: 'Users', icon: UserCog },
+      ]
+    : NAV
 
   return (
     <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
@@ -75,13 +82,17 @@ export default function AppShell({ children }: Props) {
             </button>
             {user && (
               <>
-                <span className="text-sm text-gray-600 dark:text-gray-400">
+                <NavLink
+                  to="/account"
+                  className="text-sm text-gray-600 hover:underline dark:text-gray-400"
+                  title="Your account"
+                >
                   {user.username}
                   {user.is_admin && ' (admin)'}
-                </span>
+                </NavLink>
                 <button
                   type="button"
-                  onClick={signOut}
+                  onClick={() => void signOut()}
                   className="btn btn-ghost p-2"
                   aria-label="Sign out"
                   title="Sign out"

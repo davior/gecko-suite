@@ -296,9 +296,11 @@ CurrentUser = Annotated[UserCtx, Depends(current_user)]
 
 # ─── administrators ──────────────────────────────────────────────────────────
 #
-# The token carries no admin claim and `User.is_admin` has no writer, so an admin is
-# whoever `ADMIN_USERS` names — or a row somebody set by hand, which still counts. From
-# M1, admins are who may register instance-wide providers, models and task routing.
+# An admin is a row with `User.is_admin` (the first account registered here, whoever an
+# admin promotes on the Users screen, or a Notes admin the importer brought across), or
+# whoever `ADMIN_USERS` names. The token's `is_admin` claim is never trusted for this: a
+# token Notes minted carries none, and the row is what an admin can take away. Admins are
+# who may register instance-wide providers, models and task routing, and manage accounts.
 
 
 def is_admin(user: UserCtx, record: Optional[User]) -> bool:

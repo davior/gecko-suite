@@ -1,14 +1,16 @@
 import { create } from 'zustand'
+import { accountsApi } from '@/api/accounts'
 import { authApi, redirectToLogin, type User } from '@/api/auth'
-import { apiErrorCode, apiErrorMessage, clearToken } from '@/api/client'
+import { apiErrorCode, apiErrorMessage, clearToken, writeToken } from '@/api/client'
 import { useRegistryStore } from '@/stores/registry'
 
 /**
  * Who is signed in. Copied from GVC.
  *
- * There is no `login()` here on purpose: until identity moves here (M6) the suite cannot
- * sign anybody in. `bootstrap()` ends in "the session Notes gave us is valid" or "send
- * them to Notes".
+ * `bootstrap()` ends in "the session we were given is valid" or "send them to sign in",
+ * wherever that is (see `redirectToLogin`). `signedIn()` is the suite's own sign-in page
+ * handing over a token it just got (M6); the page itself does the asking, since its
+ * steps (a second factor, a redirect elsewhere) are not state anyone else needs.
  *
  * `rejected` is not a flavour of `anonymous`: Notes says you are signed in and this app
  * could not verify it, the one state where a sign-in button loops forever.
@@ -20,7 +22,8 @@ interface AuthState {
   status: Status
   error: string | null
   bootstrap: () => Promise<void>
-  signOut: () => void
+  signedIn: (token: string) => Promise<void>
+  signOut: () => Promise<void>
   reset: () => void
 }
 
@@ -55,13 +58,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signOut() {
+  async signedIn(token: string) {
+    writeToken(token)
+    // Not `reset()`, which would flash the signed-out screen between the two states.
+    set({ status: 'idle' })
+    await get().bootstrap()
+  },
+
+  async signOut() {
     clearToken()
     get().reset()
     // Every store holding user data, so one person's keys and spend cannot stay on
     // screen for the next.
     useRegistryStore.getState().reset()
-    void redirectToLogin()
+    // The cookie is httpOnly, so only the server can clear it, and it is shared by every
+    // app on the domain: without this, the sign-in page would find the old session
+    // still there and sign the same person straight back in. Best effort, because an
+    // unreachable backend must not keep anyone from leaving.
+    await accountsApi.logout().catch(() => undefined)
+    await redirectToLogin()
   },
 
   reset() {
