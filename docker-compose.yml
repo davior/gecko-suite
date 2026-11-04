@@ -34,6 +34,7 @@ services:
       - SMTP_FROM=${SMTP_FROM:-}
       - SMTP_STARTTLS=${SMTP_STARTTLS:-true}
       - SMTP_SSL=${SMTP_SSL:-false}
+      - SMTP_TIMEOUT=${SMTP_TIMEOUT:-20}
     # Never published to the host: the frontend's nginx proxies it. The other apps reach
     # it through that same address (SUITE_BASE_URL in their .env).
     expose:
