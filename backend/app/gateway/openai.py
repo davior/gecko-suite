@@ -193,22 +193,34 @@ def call(target: Target, request: ChatRequest, *, max_tokens: int, params: dict)
 
 
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
-    """Yield ("delta", text) as text arrives, then ("final", Reply).
+    """Yield ("delta", text) as text arrives, then ("final", Reply)."""
+    body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
+    url, _ = _url_and_timeout(target)
+    for kind, value in completion_events(url, headers, body, label=target.provider_name):
+        if kind == "delta":
+            yield kind, value
+        else:
+            value["model"] = value.get("model") or target.model_id
+            yield "final", parse(value, target)
+
+
+def completion_events(url: str, headers: dict, body: dict, *, label: str,
+                      read_timeout: float = STREAM_READ_TIMEOUT) -> Iterator[tuple[str, Any]]:
+    """Stream a chat completion: ("delta", text) as text arrives, then ("payload", dict).
 
     Tool calls arrive as fragments keyed by `index`: the first carries the id and name,
     later ones append to `arguments`. They are joined here into the blocking shape, so
-    `parse` reads both.
+    `parse` reads both, and so the raw passthrough can hand it back as it is. `body` must
+    already say `stream: true` and ask for usage.
     """
-    body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
-    url, _ = _url_and_timeout(target)
     text = ""
     finish_reason = None
     usage: dict = {}
     served = ""
     calls: dict[int, dict] = {}
 
-    with upstream.stream_lines(url, headers=headers, body=body, read_timeout=STREAM_READ_TIMEOUT,
-                               label=target.provider_name) as lines:
+    with upstream.stream_lines(url, headers=headers, body=body, read_timeout=read_timeout,
+                               label=label) as lines:
         for line in lines:
             if not line.startswith("data:"):
                 continue
@@ -244,6 +256,5 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
     message: dict[str, Any] = {"role": "assistant", "content": text or None}
     if calls:
         message["tool_calls"] = [calls[i] for i in sorted(calls)]
-    payload = {"model": served or target.model_id, "usage": usage,
-               "choices": [{"message": message, "finish_reason": finish_reason}]}
-    yield "final", parse(payload, target)
+    yield "payload", {"model": served, "usage": usage,
+                      "choices": [{"message": message, "finish_reason": finish_reason}]}

@@ -19,8 +19,9 @@ decisions that would otherwise look arbitrary.
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
 | M2 First consumers | Done. GVC's assistant ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment, embeddings and new assistant ([davior/gam#58](https://github.com/davior/gam/pull/58)) are merged, behind `AI_BACKEND`. See "M2 as built" |
-| M3 | M3a (the fal gateway) merged. M3b-1 (speech to text) in review; text to speech (GVC) and web search next, as their own PRs |
-| M4–M8 | Not started |
+| M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged. None of it has run against real fal, Deepgram or a search backend yet |
+| M4 | M4a (the raw passthrough, AI chat only) is built on the suite side; Notes forwards to it in its own PR. Speech, image and search for Notes (SN-2) and the settings pages (SN-5) follow |
+| M5–M8 | Not started |
 
 ## Why this exists
 
@@ -234,8 +235,7 @@ of the `UserSetting` tables.
   reference names. A fallback answer is recorded and priced as the model that served.
 - **App credentials reach only the gateway** and read-only lookups (an allowlist in
   `app/auth.py`), and the app they name is the app usage is credited to.
-- **The raw passthrough (`/ai/proxy/*`) is not built yet.** Notes is the only caller, and
-  its cutover is M4; it lands with SN-1.
+- **The raw passthrough (`/ai/proxy/*`) came with M4a.** See "M4a as built".
 - **fal and Deepgram are registered vendors** (the importer brings their keys across) but
   are not called until M3; their connection test says so.
 - **Persona avatars are a URL field for now.** Upload needs file storage the suite does
@@ -342,6 +342,25 @@ the audio cache, usage in characters. Decisions:
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`
 goes, since the suite records usage. Its settings pages link here.
 
+**M4a as built (AI chat only).** What differs from the design above, and why:
+
+- **Providers are found by vendor and model name, not by id.** The importer merged Notes'
+  rows by key, so Notes' provider ids mean nothing here. The caller's providers of that
+  vendor are searched (their own first, then shared) for one with an active model of that
+  name. A provider of the vendor without such a row is used if nothing better exists, so a
+  model added in Notes after the import needs no second step; its price then comes from the
+  catalogue family, or is unknown (never 0). No keyed provider is a 409 `ai_not_configured`.
+- **The answers are Notes' own dicts, not envelopes**: the reassembled message for a
+  blocking Anthropic call (streamed internally, as Notes does), the vendor's JSON for
+  OpenAI-compatible and Ollama, and `delta` / `final` / `error` SSE frames when streaming.
+  Errors before the first byte use the suite's `{"detail": {"code", "message"}}`.
+- **Anthropic's web-search beta header is sent only when the caller's tools include a
+  `web_search*` tool**, and only to Anthropic itself.
+- **Usage is recorded here once per call**, with cache reads and writes priced at their
+  own rates (Notes priced them as input). `app` and `subject_ref` are optional body fields.
+- **Not done yet:** Notes' speech, image generation and web search (SN-2) and its settings
+  pages (SN-5). They are separate PRs, as the "AI chat only" scope was chosen.
+
 **M5 — Notes assistant on tool calls.** As "Tool calling" item 3.
 
 **M6 — Identity.** `User` accounts, `AuthToken`, 2FA, sign-in and registration,
@@ -395,7 +414,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 |---|---|---|---|
 | SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)); its 793 tests pass unchanged on it |
-| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Suite side up; GVC side after |
+| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Merged |
 | SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
 
