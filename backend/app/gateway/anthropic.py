@@ -269,17 +269,28 @@ def _finish_tool_input(block: dict, raw: Optional[str]) -> None:
 
 
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
-    """Yield ("delta", text) as text arrives, then ("final", Reply).
+    """Yield ("delta", text) as text arrives, then ("final", Reply)."""
+    body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
+    for kind, value in message_events(url_for(target), headers, body, label=target.provider_name):
+        if kind == "delta":
+            yield kind, value
+        else:
+            yield "final", parse(value, target)
+
+
+def message_events(url: str, headers: dict, body: dict, *, label: str,
+                   read_timeout: float = STREAM_READ_TIMEOUT) -> Iterator[tuple[str, Any]]:
+    """Stream a Messages request: ("delta", text) as text arrives, then ("message", dict).
 
     Reassembles the same message the blocking endpoint would return (ported from Notes'
-    `_iter_anthropic_events`), so `parse` reads both.
+    `_iter_anthropic_events`), so `parse` reads both, and so the raw passthrough can hand
+    it back as it is. `body` must already say `stream: true`.
     """
-    body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
     message: dict[str, Any] = {"content": []}
     buffers: dict[int, str] = {}
 
-    with upstream.stream_lines(url_for(target), headers=headers, body=body,
-                               read_timeout=STREAM_READ_TIMEOUT, label=target.provider_name) as lines:
+    with upstream.stream_lines(url, headers=headers, body=body, read_timeout=read_timeout,
+                               label=label) as lines:
         for line in lines:
             if not line.startswith("data:"):
                 continue
@@ -334,7 +345,7 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
             elif kind == "error":
                 error = event.get("error") or {}
                 raise UpstreamError(
-                    f"{target.provider_name} stream error: {error.get('message') or error.get('type', 'error')}",
+                    f"{label} stream error: {error.get('message') or error.get('type', 'error')}",
                     usage=parse_usage(message), served_model=str(message.get("model") or ""),
                 )
 
@@ -342,4 +353,4 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
     for index, raw in list(buffers.items()):
         if index < len(message.get("content", [])):
             _finish_tool_input(message["content"][index], raw)
-    yield "final", parse(message, target)
+    yield "message", message

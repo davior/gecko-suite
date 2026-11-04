@@ -95,3 +95,41 @@ def record_chat(
     session.commit()
     session.refresh(event)
     return event
+
+
+def record_raw(
+    session: Session,
+    *,
+    user_id: str,
+    app: Optional[str],
+    provider: AIProvider,
+    model: Optional[AIModel],
+    model_id: str,
+    usage: Usage,
+    subject_ref: Optional[str],
+    status: str = "ok",
+) -> UsageEvent:
+    """The ledger row for a raw-passthrough call, where there may be no model row.
+
+    The passthrough matches by vendor and model name, so the model may not be one this
+    suite has been told about. Its price then comes from the catalogue by name, and when
+    even that is unknown the cost is None, never 0.
+    """
+    if model is not None:
+        pricing = effective_pricing(session, model, provider)
+    else:
+        entry = catalog_entry_for(session, provider.vendor, model_id)
+        pricing = (load_json(entry.pricing, {}) or None) if entry else None
+    priced = token_cost(pricing, usage)
+    event = UsageEvent(
+        user_id=user_id, app=app, task=None, kind="ai", provider_id=provider.id,
+        provider_name=provider.name, vendor=provider.vendor, model=model_id,
+        units=usage.input_tokens + usage.output_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+        unit_type="tokens", input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cache_read_tokens=usage.cache_read_tokens, cache_write_tokens=usage.cache_write_tokens,
+        cost=priced[0] if priced else None, currency=priced[1] if priced else None,
+        cost_estimated=True, status=status, subject_ref=subject_ref)
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event

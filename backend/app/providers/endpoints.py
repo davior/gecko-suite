@@ -69,7 +69,7 @@ def openai_compat_base(vendor: Optional[str], base_url: Optional[str]) -> str:
     return (base_url or OPENAI_BASE).rstrip("/")
 
 
-def anthropic_headers(api_key: str, vendor: str) -> dict[str, str]:
+def anthropic_headers(api_key: str, vendor: str, *, web_search: bool = False) -> dict[str, str]:
     """Auth and protocol headers for one Messages request.
 
     Beta flags go only to Anthropic: they name Anthropic-internal features, and a gateway
@@ -84,6 +84,10 @@ def anthropic_headers(api_key: str, vendor: str) -> dict[str, str]:
     }
     if vendor == VENDOR_ANTHROPIC:
         headers["anthropic-beta"] = "pdfs-2024-09-25"
+        if web_search:
+            # Only for a request that carries the server-side search tool (the raw
+            # passthrough sees the caller's own tools; the normalized path builds them).
+            headers["anthropic-beta"] += ",web-search-2025-03-05"
     else:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
