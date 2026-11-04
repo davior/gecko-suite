@@ -19,7 +19,7 @@ decisions that would otherwise look arbitrary.
 | M0 Bootstrap | Done. Backend skeleton, auth (verifying Notes' JWT), the encryption scheme, CI, this plan |
 | M1 AI core | Done. Registry, chat gateway with tools and streaming, embeddings, usage ledger, app credentials, prompts and personas, web search, importer, key rotation, `gecko-suite-client`, the settings frontend. See "M1 as built" |
 | M2 First consumers | Done. GVC's assistant ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment, embeddings and new assistant ([davior/gam#58](https://github.com/davior/gam/pull/58)) are merged, behind `AI_BACKEND`. See "M2 as built" |
-| M3 | M3a (the fal gateway) in progress; speech and search next, as their own PRs |
+| M3 | M3a (the fal gateway) merged. M3b-1 (speech to text) in review; text to speech (GVC) and web search next, as their own PRs |
 | M4–M8 | Not started |
 
 ## Why this exists
@@ -300,6 +300,22 @@ key, runs the queue and bills; it does **not** yet take over fal's model catalog
 - **What stays in GAM until the catalogue moves:** each endpoint's dialect (`image_url` or
   `image_urls[]`, `"5"` or `5` seconds), its options and its request builder.
 
+**M3b-1 as built — speech to text, thin like the fal gateway.** `POST /ai/speech/stt` takes the
+audio as the raw request body (`model`, `language`, `subject_ref` as query parameters; FLAC is what
+GAM sends), calls Deepgram's prerecorded API with `utterances` and `diarize`, and returns
+segments with words, speakers and timings (GAM's parser, moved here), plus the language and the
+model Deepgram reports. `GET /ai/speech/stt/ready` says whether a Deepgram key would be found, so
+an app can decline to queue work that cannot succeed (GAM's upload chain). Decisions:
+- **The key is the caller's visible Deepgram provider** (their own, else the shared one), and the
+  model is a parameter, as fal's endpoint is: neither is a routed choice.
+- **Seconds are recorded, the cost is unknown.** Deepgram's prerecorded price is not in the
+  suite's catalogue, so `cost` is `None`, never 0, exactly as GAM recorded it.
+- **Bounded by `STT_MAX_UPLOAD_MB` (300).** The body is held in memory for the request, so it is
+  capped (hours of mono FLAC) and the caller is told to send a longer recording in parts. nginx
+  allows the same, unbuffered, with a long read timeout.
+- **Text to speech is M3b-2**, and *is* routed (`speech.tts` to a model with its voice and request
+  format as its params), because Video Creator has no voice setting of its own to send.
+
 **M4 — Notes cutover.** Notes' `/api/settings/ai-providers/proxy/*` routes forward to the
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`
 goes, since the suite records usage. Its settings pages link here.
@@ -346,7 +362,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SA-1 | `build_provider` / `build_embedder` behind `AI_BACKEND`, using `gecko-suite-client` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
 | SA-2 | The new assistant, built on `/ai/chat` + `run_agent` with GAM's own tools | M2 | Open |
 | SA-3 | `/api/generate` runs its fal jobs through the suite (thin gateway; catalogue stays in GAM for now) | M3 | Open |
-| SA-4 | Deepgram transcription through the suite | M3 | Open |
+| SA-4 | Deepgram transcription through the suite | M3b | Suite side up ([davior/gecko-suite#6](https://github.com/davior/gecko-suite/pull/6)); GAM side after |
 | SA-5 | Settings → AI / embeddings / generation pages link to the suite | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); the embedding and provider panels, not generation, which stays local until M3 |
 | SA-6 | Supersede "copy now, extract later" in `docs/plan-of-attack.md` and `docs/m6-ai-enrichment.md` | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)) |
 | SA-7 | `SUITE_BASE_URL`, `SUITE_APP_ID=gam` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; enrichment jobs call as the app on the user's behalf | M2 | PR open ([davior/gam#58](https://github.com/davior/gam/pull/58)); no `SUITE_APP_ID`, see "M2 as built" |

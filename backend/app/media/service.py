@@ -15,7 +15,7 @@ import json
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlmodel import Session, col, select
+from sqlmodel import Session
 
 from app import crypto
 from app.auth import UserCtx
@@ -26,29 +26,22 @@ from app.models.ai import AIProvider
 from app.models.media import MediaJob
 from app.models.usage import UsageEvent
 from app.services.access import app_for, bad_request, not_found
-from app.services.registry import visible_providers_query
-from app.vocab import SCOPE_USER, VENDOR_FAL
+from app.services.vendor_keys import find_provider
+from app.vocab import VENDOR_FAL
 
 KINDS = ("image", "video")
 TERMINAL = ("completed", "failed", "cancelled")
 
 
 def fal_provider(session: Session, user_id: str) -> AIProvider:
-    """The fal.ai provider this person's request goes through: their own, else the shared
-    one. A provider with no usable key is skipped, not an error: someone with a broken
-    personal key should still reach the shared one."""
-    rows = session.exec(
-        visible_providers_query(user_id).where(AIProvider.vendor == VENDOR_FAL,
-                                               col(AIProvider.enabled).is_(True))
-        .order_by(col(AIProvider.created_at))).all()
-    rows = [r for r in rows if crypto.decrypt(r.api_key)]
-    # Personal first: it is what the person chose for themselves.
-    rows.sort(key=lambda r: 0 if r.scope == SCOPE_USER else 1)
-    if not rows:
+    """The fal.ai provider this person's request goes through (their own, else the
+    shared one)."""
+    provider = find_provider(session, user_id, VENDOR_FAL)
+    if provider is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
             "code": "ai_not_configured",
             "message": "No fal.ai key is set up. Add a fal.ai provider in Gecko Suite."})
-    return rows[0]
+    return provider
 
 
 def _key(session: Session, job: MediaJob) -> str:

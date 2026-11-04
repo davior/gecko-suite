@@ -22,6 +22,7 @@ from app.routers import apps as apps_router
 from app.routers import assignments as assignments_router
 from app.routers import gateway as gateway_router
 from app.routers import media as media_router
+from app.routers import speech as speech_router
 from app.routers import library as library_router
 from app.routers import models as models_router
 from app.routers import providers as providers_router
@@ -134,6 +135,7 @@ app.include_router(models_router.router, prefix=API_V1, tags=["models"])
 app.include_router(assignments_router.router, prefix=API_V1, tags=["routing"])
 app.include_router(gateway_router.router, prefix=f"{API_V1}/ai", tags=["gateway"])
 app.include_router(media_router.router, prefix=f"{API_V1}/ai/media", tags=["media"])
+app.include_router(speech_router.router, prefix=f"{API_V1}/ai/speech", tags=["speech"])
 app.include_router(usage_router.router, prefix=f"{API_V1}/usage", tags=["usage"])
 app.include_router(library_router.router, prefix=API_V1, tags=["prompts"])
 app.include_router(search_router.router, prefix=f"{API_V1}/search", tags=["search"])
