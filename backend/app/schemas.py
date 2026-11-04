@@ -41,6 +41,10 @@ class ClientConfig(BaseModel):
     """
 
     notes_base_url: str
+    # Where the sign-in page may send someone afterwards (M6): its own origin and these.
+    login_redirect_origins: List[str] = []
+    # Whether "forgot password" and emailed codes can work at all.
+    email_enabled: bool = False
 
 
 class HealthResponse(BaseModel):

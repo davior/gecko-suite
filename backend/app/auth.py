@@ -199,6 +199,7 @@ def _app_caller(request: Request, session: Session, app: Optional[str], secret: 
         session.commit()
     except Exception:
         session.rollback()
+    _refuse_disabled(session, on_behalf_of)  # an app cannot act for a disabled account either
     return UserCtx(id=on_behalf_of, username="", app=app)
 
 
@@ -271,8 +272,23 @@ def current_user(
     subject = payload.get("sub")
     if not subject:
         raise _unauthorized("Token carries no subject")
+    if payload.get("twofa_pending"):
+        # A two-factor challenge: proof that the password step passed, signed with the same
+        # secret as a session and carrying the same `sub`. Accepted as a session, it would
+        # let a password alone past the second factor. It is good for the second step only.
+        raise _unauthorized("This sign-in still needs its second step")
+    _refuse_disabled(session, subject)
 
     return UserCtx(id=subject, username=payload.get("username") or "")
+
+
+def _refuse_disabled(session: Session, user_id: str) -> None:
+    """A disabled account (M6) is refused here as well as at sign-in: a token it was issued
+    before being disabled stays valid for its 30 days, and must not keep working."""
+    record = session.get(User, user_id)
+    if record is not None and not record.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail={"code": "account_disabled", "message": "This account has been disabled."})
 
 
 CurrentUser = Annotated[UserCtx, Depends(current_user)]

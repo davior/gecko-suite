@@ -22,7 +22,8 @@ decisions that would otherwise look arbitrary.
 | M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged (suite #5–#7; GAM [#59](https://github.com/davior/gam/pull/59), [#60](https://github.com/davior/gam/pull/60), [#61](https://github.com/davior/gam/pull/61); GVC [#39](https://github.com/davior/gvc/pull/39), [#40](https://github.com/davior/gvc/pull/40)). None of it has run against real fal, Deepgram or a search backend yet |
 | M4 | Done. The raw passthrough (suite #8), and Notes on the suite behind `AI_BACKEND=suite`: chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech ([#215](https://github.com/davior/gecko-notes/pull/215)), image generation ([#216](https://github.com/davior/gecko-notes/pull/216)) and the Settings notes ([#217](https://github.com/davior/gecko-notes/pull/217)). None of it has run against the real suite or a vendor yet. See "M4 as built (Notes side)" |
 | M5 | In progress. Suite side: `/ai/chat` takes a vendor and model name (see "M5 as built (suite side)"). Notes' tool planner follows in its own PR, behind a per-person switch |
-| M6–M8 | Not started |
+| M6 | In progress. M6a, accounts in the suite's backend: see "M6a as built". Nothing changes for anyone until the cutover (M6d) |
+| M7–M8 | Not started |
 
 ## Why this exists
 
@@ -412,6 +413,28 @@ only in suite mode (local mode keeps the text plan until M8).
 `/api/auth/session` and the `gecko_session` cookie move here from Notes, ids preserved
 (D7). Notes becomes a verifier like GAM and GVC. Possible follow-up: RS256, so apps verify
 with a public key and stop sharing a signing secret.
+
+**M6a as built (suite backend).** Decided: a reversible cutover by config, account admin in
+the suite (Notes keeps its per-user data views), HS256 kept.
+- **Ported from Notes, not rewritten:** its auth routes under `/api/v1/auth` (register, login and
+  the 2FA step, logout, verify email, forgot and reset password, me, session, change password,
+  TOTP and email 2FA), bcrypt hashes (Notes' passlib hashes verify unchanged), the mail
+  templates and the rate limits (slowapi). `routers/accounts.py` must not use postponed
+  annotations: slowapi's wrapper hides them from FastAPI, and every body becomes a query.
+- **The same token:** HS256 with the shared `JWT_SECRET_KEY`, `{sub, username, exp}` plus
+  `email` and `is_admin`, which other apps ignore, in the same `gecko_session` cookie. A token
+  from either issuer is accepted by every app, so the cutover signs nobody out.
+- **`?redirect=`** is honoured only for `LOGIN_REDIRECT_ORIGINS`: no open redirect.
+- **A 2FA challenge token is not a session**: it carries `twofa_pending`, and `current_user`
+  refuses it. All four apps had accepted it (fixed in GAM #62, GVC #41, Notes #220).
+- **A disabled account** is refused for its own sign-in and when an app calls on its behalf.
+- **Admin:** `/api/v1/admin/users` (list, enable or disable, admin flag, reset password, delete
+  the account only, never the last admin) and `/api/v1/admin/settings` (registration, email
+  verification).
+- **Importer:** `--notes` now copies password hashes, flags, 2FA and the two sign-up switches,
+  re-encrypting TOTP secrets with `SUITE_ENCRYPTION_KEYS` (2FA is switched off with a warning
+  for a secret that cannot be decrypted). It never overwrites an account that already has a
+  password here.
 
 **M7 — Shared preferences.** UI themes and other cross-app settings. GVC's
 prompt-modifier themes (its D5) stay in GVC unless there is a reason to share them.

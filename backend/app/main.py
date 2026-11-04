@@ -18,6 +18,8 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.auth import CurrentUser, is_admin
 from app.config import settings
 from app.database import engine, get_session
+from app.routers import account_admin as account_admin_router
+from app.routers import accounts as accounts_router
 from app.routers import apps as apps_router
 from app.routers import assignments as assignments_router
 from app.routers import gateway as gateway_router
@@ -47,6 +49,15 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Gecko Suite", version=VERSION, lifespan=lifespan)
+
+# Sign-in, second steps and recovery emails are rate limited, as in gecko-notes (M6).
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+
+from app.limiter import limiter  # noqa: E402
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Behind Caddy/nginx, so X-Forwarded-* decides scheme and client address.
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
@@ -101,7 +112,9 @@ def client_config() -> DataResponse[ClientConfig]:
     Served at runtime rather than compiled into the bundle, so pointing a running
     container at a different Notes is a restart, not a rebuild (GAM learnt this one).
     """
-    return DataResponse(data=ClientConfig(notes_base_url=settings.notes_base_url))
+    return DataResponse(data=ClientConfig(notes_base_url=settings.notes_base_url,
+                                          login_redirect_origins=settings.redirect_origins,
+                                          email_enabled=settings.email_enabled))
 
 
 @app.get("/api/me", response_model=DataResponse[dict])
@@ -140,3 +153,5 @@ app.include_router(usage_router.router, prefix=f"{API_V1}/usage", tags=["usage"]
 app.include_router(library_router.router, prefix=API_V1, tags=["prompts"])
 app.include_router(search_router.router, prefix=f"{API_V1}/search", tags=["search"])
 app.include_router(apps_router.router, prefix=f"{API_V1}/apps", tags=["apps"])
+app.include_router(accounts_router.router, prefix=f"{API_V1}/auth", tags=["accounts"])
+app.include_router(account_admin_router.router, prefix=f"{API_V1}/admin", tags=["accounts"])

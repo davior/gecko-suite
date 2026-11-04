@@ -80,6 +80,7 @@ class Report:
     prompts: int = 0
     recipes: int = 0
     users: int = 0
+    accounts: int = 0
     skipped: int = 0
     warnings: list[str] = field(default_factory=list)
 
@@ -96,6 +97,7 @@ class Report:
             f"system prompts imported: {self.prompts}",
             f"recipes imported: {self.recipes}",
             f"users created: {self.users}",
+            f"accounts imported (can sign in here): {self.accounts}",
             f"already present, skipped: {self.skipped}",
             *[f"warning: {w}" for w in self.warnings],
         ]
@@ -188,6 +190,49 @@ class Importer:
             user.username = user.username or username
             user.email = user.email or email
             self.session.add(user)
+
+    def import_account(self, row: dict) -> None:
+        """Make a Notes account one that signs in here (M6), with the id, password and second
+        factor it had, so nobody has to do anything at the cutover.
+
+        An account that already has a password here is left alone: it signed in here since
+        an earlier import, and Notes' copy is the older one.
+        """
+        user = self.session.get(User, row["id"])
+        if user is None or user.hashed_password or not row.get("hashed_password"):
+            return
+        user.username = row.get("username") or user.username
+        user.email = row.get("email") or user.email
+        user.hashed_password = row["hashed_password"]
+        user.is_active = bool(row.get("is_active", True))
+        user.is_admin = bool(row.get("is_admin"))
+        user.email_verified = bool(row.get("email_verified", True))
+        user.created_at = parse_time(row.get("created_at")) if row.get("created_at") else user.created_at
+        user.last_login = parse_time(row["last_login"]) if row.get("last_login") else None
+        method = row.get("two_factor_method") or None
+        secret = None
+        if method == "totp":
+            plain = self.decrypt(row.get("totp_secret"), f"Notes account {user.username!r}: authenticator")
+            if plain:
+                secret = crypto.encrypt(plain)
+            else:
+                # Importing the method without a usable secret would lock them out. Off, and
+                # said, so an administrator can have them set it up again.
+                method = None
+                self.report.warn(f"Notes account {user.username!r}: two-factor turned off, because its "
+                                 "authenticator secret could not be decrypted; ask them to set it up again")
+        user.two_factor_method, user.totp_secret = method, secret
+        self.session.add(user)
+        self.report.accounts += 1
+
+    def import_sign_up_settings(self, connection: sqlite3.Connection) -> None:
+        """Notes' two sign-up switches, unless they were already set here."""
+        from app.accounts import instance
+        from app.models.user import InstanceSetting
+
+        for row in rows(connection, "appsetting"):
+            if row.get("key") in instance.DEFAULTS and self.session.get(InstanceSetting, row["key"]) is None:
+                instance.put(self.session, row["key"], bool(setting(row.get("value"))))
 
     def find_provider(self, user_id: str, vendor: str, base_url: Optional[str], use_anthropic_api: bool,
                       api_key: str) -> Optional[AIProvider]:
@@ -371,6 +416,8 @@ class Importer:
         for row in rows(connection, "user"):
             self.ensure_user(row["id"], username=row.get("username") or "", email=row.get("email"),
                              is_admin=bool(row.get("is_admin")))
+            self.import_account(row)
+        self.import_sign_up_settings(connection)
         for row in rows(connection, "systemprompt"):
             prompt_id = derived_id("notes", "prompt", str(row["id"]))
             if self.session.get(SystemPrompt, prompt_id) is not None:

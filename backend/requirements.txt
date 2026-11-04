@@ -10,3 +10,13 @@ python-dotenv>=1.0.0
 # Parsing DuckDuckGo's results page for keyless web search (app.search.web). Ships
 # Python 3.13 wheels.
 lxml==5.3.0
+# Accounts (M6): sign-in moved here from gecko-notes. bcrypt directly rather than passlib
+# (unmaintained): Notes' hashes are plain $2b$ bcrypt and verify without it.
+bcrypt==4.2.1
+pyotp==2.9.0
+# Renders the authenticator QR as SVG, so no Pillow.
+qrcode==8.0
+jinja2==3.1.4
+markdown==3.7
+email-validator==2.2.0
+slowapi==0.1.9

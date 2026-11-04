@@ -21,6 +21,19 @@ services:
       - NOTES_BASE_URL=${NOTES_BASE_URL:-https://notes.geckopico.com}
       - ADMIN_USERS=${ADMIN_USERS:-}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # Accounts (M6): the shared session cookie, where sign-in may send someone back to,
+      # and the email behind verification, password reset and emailed codes.
+      - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:-}
+      - AUTH_COOKIE_SECURE=${AUTH_COOKIE_SECURE:-true}
+      - LOGIN_REDIRECT_ORIGINS=${LOGIN_REDIRECT_ORIGINS:-https://notes.geckopico.com,https://assets.geckopico.com,https://gvc.geckopico.com}
+      - APP_BASE_URL=${APP_BASE_URL:-https://suite.geckopico.com}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-true}
+      - SMTP_SSL=${SMTP_SSL:-false}
     # Never published to the host: the frontend's nginx proxies it. The other apps reach
     # it through that same address (SUITE_BASE_URL in their .env).
     expose:
