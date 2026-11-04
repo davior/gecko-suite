@@ -69,4 +69,71 @@ describe('ProvidersView', () => {
       capabilities: ['chat'],
     })
   })
+
+  it('sets the voices and request format of a text-to-speech model', async () => {
+    vi.spyOn(modelsApi, 'list').mockResolvedValue([
+      model({
+        id: 'tts1',
+        vendor: 'fal',
+        model_id: 'fal-ai/elevenlabs/tts/eleven-v3',
+        label: 'Eleven v3',
+        capabilities: ['tts'],
+        voices: ['Aria'],
+        params: { default_voice: 'Aria' },
+      }),
+    ])
+    const update = vi.spyOn(modelsApi, 'update').mockResolvedValue(model())
+    render(<ProvidersView />)
+    const row = (await screen.findByText('Eleven v3')).closest(
+      '.rounded-lg'
+    ) as HTMLElement
+    await userEvent.click(within(row).getAllByRole('button', { name: 'Edit' })[0])
+
+    // What is saved is shown, voices as lines and the settings as JSON.
+    const voices = within(row).getByLabelText(/voices/i)
+    expect(voices).toHaveValue('Aria')
+    await userEvent.clear(voices)
+    await userEvent.type(voices, 'Aria{Enter}Roger{Enter}{Enter}')
+    const settings = within(row).getByLabelText(/request settings/i)
+    await userEvent.clear(settings)
+    await userEvent.click(settings)
+    await userEvent.paste('{"default_voice": "Roger", "voice_field": "voice_id"}')
+    await userEvent.click(
+      within(row).getByRole('button', { name: /save voices and settings/i })
+    )
+
+    expect(update).toHaveBeenCalledWith('tts1', {
+      voices: ['Aria', 'Roger'],
+      params: { default_voice: 'Roger', voice_field: 'voice_id' },
+    })
+  })
+
+  it('refuses request settings that are not a JSON object, without saving', async () => {
+    vi.spyOn(modelsApi, 'list').mockResolvedValue([
+      model({ id: 'tts1', vendor: 'fal', label: 'Eleven v3', capabilities: ['tts'] }),
+    ])
+    const update = vi.spyOn(modelsApi, 'update').mockResolvedValue(model())
+    render(<ProvidersView />)
+    const row = (await screen.findByText('Eleven v3')).closest(
+      '.rounded-lg'
+    ) as HTMLElement
+    await userEvent.click(within(row).getAllByRole('button', { name: 'Edit' })[0])
+    await userEvent.click(within(row).getByLabelText(/request settings/i))
+    await userEvent.paste('["not", "an", "object"]')
+    await userEvent.click(
+      within(row).getByRole('button', { name: /save voices and settings/i })
+    )
+
+    expect(await within(row).findByRole('alert')).toHaveTextContent(/json object/i)
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('offers no voice settings for a model that does not speak', async () => {
+    render(<ProvidersView />)
+    const row = (await screen.findByText('Claude Opus 5.5')).closest(
+      '.rounded-lg'
+    ) as HTMLElement
+    await userEvent.click(within(row).getAllByRole('button', { name: 'Edit' })[0])
+    expect(within(row).queryByLabelText(/voices/i)).toBeNull()
+  })
 })

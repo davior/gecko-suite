@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel, Field
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session
 
 from app.auth import CurrentUser
 from app.database import get_session
 from app.schemas import DataResponse
-from app.speech import deepgram, stt
+from app.speech import deepgram, stt, tts
 
 router = APIRouter()
 
@@ -44,3 +45,25 @@ async def transcribe(
         stt.transcribe, session, user, audio, content_type=content_type, model=model,
         language=language, app=app, subject_ref=subject_ref)
     return DataResponse(data=result)
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    # Pins the model a narration began on: the `X-Speech-Model` of its first answer.
+    # Omitted, the routed `speech.tts` model is used.
+    model_ref: Optional[str] = None
+    # Omitted, the model's default voice. A voice the model does not offer is replaced by it.
+    voice: Optional[str] = None
+    app: Optional[str] = None
+    subject_ref: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/tts")
+def speak(body: SpeakRequest, user: CurrentUser, session: Session = Depends(get_session)):
+    """The text as audio. The body of the response *is* the audio, not an envelope, so a
+    caller can hand it straight to ffmpeg; what resolved comes back as headers."""
+    spoken = tts.speak(session, user, text=body.text, model_ref=body.model_ref, voice=body.voice,
+                       app=body.app, subject_ref=body.subject_ref)
+    return Response(content=spoken.audio, media_type=spoken.media_type, headers={
+        "X-Speech-Provider": spoken.vendor, "X-Speech-Model": spoken.model_ref,
+        "X-Speech-Voice": spoken.voice, "X-Speech-Cached": "true" if spoken.cached else "false"})

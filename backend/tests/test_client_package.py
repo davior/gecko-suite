@@ -291,3 +291,33 @@ def test_audio_goes_through_the_client_and_comes_back_as_a_transcript(auth_clien
     assert transcript.segments[0].words[0].text == "Hello" and transcript.segments[1].speaker == 1
     # The audio went as the body with its own content type, and the credential survived it.
     assert vendors.calls[0].content == AUDIO and vendors.calls[0].headers["content-type"] == "audio/flac"
+
+
+def test_text_read_aloud_through_the_client_pins_what_resolved(auth_client, vendors, tmp_path, monkeypatch):
+    from gecko_suite_client import SuiteError, SuiteSpeech
+
+    from app.config import settings
+    from app.speech import tts
+    from tests.test_tts import FAL_ENDPOINT, MP3, Vendors, _fal_model, _route
+
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path))
+    monkeypatch.setattr(tts, "require_safe_external_url", lambda url: None)
+    speech = SuiteSpeech(SuiteClient(token="user-jwt", http=auth_client), app="gvc")
+
+    # Nothing routed yet: the same SuiteError an app already handles for chat.
+    try:
+        speech.speak("Hello.")
+        raise AssertionError("expected a SuiteError")
+    except SuiteError as exc:
+        assert exc.code == "ai_not_configured"
+
+    Vendors(vendors)
+    model = _fal_model(auth_client)
+    _route(auth_client, model)
+    first = speech.speak("Hello there.", subject_ref="gvc:project:p1")
+    assert first.audio == MP3 and first.provider == "fal" and first.model_ref == model
+    assert first.voice == "Aria" and first.cached is False
+
+    # Pinned to what resolved, the next chunk is the same voice; the same words are a hit.
+    again = speech.speak("Hello there.", voice=first.voice, model_ref=first.model_ref)
+    assert again.cached is True and again.voice == "Aria"

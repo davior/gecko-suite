@@ -35,6 +35,18 @@ class Transcript:
     usage_event_id: Optional[str] = None
 
 
+@dataclass
+class Spoken:
+    audio: bytes
+    media_type: str
+    # What resolved. Send `model_ref` and `voice` back with every later chunk of the same
+    # narration, so it cannot change voice partway through.
+    provider: str
+    model_ref: str
+    voice: str
+    cached: bool
+
+
 class SuiteSpeech:
     def __init__(self, client: SuiteClient, *, app: Optional[str] = None):
         self.client = client
@@ -58,3 +70,17 @@ class SuiteSpeech:
                               words=[Word(**w) for w in s.get("words", [])]) for s in data["segments"]],
             language=data["language"], model=data["model"], duration_seconds=data["duration_seconds"],
             cost=data.get("cost"), usage_event_id=data.get("usage_event_id"))
+
+    def speak(self, text: str, *, voice: Optional[str] = None, model_ref: Optional[str] = None,
+              subject_ref: Optional[str] = None) -> Spoken:
+        """Read `text` aloud. With no `model_ref` the model `speech.tts` is routed to is used,
+        and its default voice if none is named."""
+        body = {k: v for k, v in (("text", text), ("voice", voice), ("model_ref", model_ref),
+                                  ("app", self.app), ("subject_ref", subject_ref)) if v}
+        response = self.client.request_raw("POST", "/api/v1/ai/speech/tts", json=body)
+        return Spoken(
+            audio=response.content, media_type=response.headers.get("content-type", "audio/mpeg"),
+            provider=response.headers.get("x-speech-provider", ""),
+            model_ref=response.headers.get("x-speech-model", ""),
+            voice=response.headers.get("x-speech-voice", ""),
+            cached=response.headers.get("x-speech-cached") == "true")

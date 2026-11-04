@@ -316,6 +316,28 @@ an app can decline to queue work that cannot succeed (GAM's upload chain). Decis
 - **Text to speech is M3b-2**, and *is* routed (`speech.tts` to a model with its voice and request
   format as its params), because Video Creator has no voice setting of its own to send.
 
+**M3b-2 as built (suite side) — text to speech, routed.** `POST /ai/speech/tts` answers with the
+audio itself (so a caller can hand it to ffmpeg) and the facts about it as headers:
+`X-Speech-Provider`, `X-Speech-Model`, `X-Speech-Voice`, `X-Speech-Cached`. Ported from Notes'
+`synthesize_tts_bytes`: two engines (Deepgram Flux, fal.ai's endpoints), the 2,000-character limit,
+the audio cache, usage in characters. Decisions:
+- **Routed, because the voice is a setting made once.** Video Creator has no voice setting of its
+  own to send. `speech.tts` routes to a model row, and the row carries what the call needs: its
+  `voices`, and `params` for the engine's dialect (`text_field`, `voice_field`, `extra_params`,
+  `default_voice`; for Deepgram, `expressivity` and `speed`). The Providers screen edits both.
+- **One narration, one voice.** The first answer names the model and voice; the caller sends them
+  back for every later chunk (`model_ref`, `voice`). A pinned model that fails is an **error**.
+  Notes' "auto" quietly fell back from Deepgram to fal, which handed back a video whose narrator
+  changes partway through, so that fallback is deliberately not carried over.
+- **An unknown voice is replaced by the model's default**, not refused, as in Notes: a stale voice
+  saved for another model must not fail a render.
+- **Billed once.** The cache is keyed on provider, model, the settings that change the sound, voice
+  and text, and a hit records nothing. The provider is in the key so one person's own key and the
+  shared one never share audio.
+- **Cost:** fal's billed quantity times fal's price (exact), else unknown. Deepgram sends no
+  quantity, so its characters are recorded and its cost is unknown, never 0.
+- **fal's audio is fetched without the key**, from a URL checked for being https and public.
+
 **M4 — Notes cutover.** Notes' `/api/settings/ai-providers/proxy/*` routes forward to the
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`
 goes, since the suite records usage. Its settings pages link here.
@@ -373,7 +395,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 |---|---|---|---|
 | SV-1 | `providers.build_provider` behind `AI_BACKEND`; per-task routing replaces the single active provider | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-2 | `assistant/loop.py` moves to `run_agent` in `gecko-suite-client`, behaviour unchanged | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)); its 793 tests pass unchanged on it |
-| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3 | Open |
+| SV-3 | `render/tts.py` calls the suite's TTS (closes open decision #3) | M3b | Suite side up; GVC side after |
 | SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | PR open ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
 

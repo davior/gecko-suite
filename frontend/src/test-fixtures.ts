@@ -32,6 +32,8 @@ export function model(overrides: Partial<Model> = {}): Model {
     max_tokens: 128000,
     context_window: 1000000,
     embed_dims: null,
+    voices: null,
+    params: null,
     pricing: null,
     effective_pricing: { currency: 'USD', input: 4, output: 20 },
     is_active: true,

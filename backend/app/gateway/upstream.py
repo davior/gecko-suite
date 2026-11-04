@@ -55,6 +55,7 @@ def post_json(
     body: Mapping[str, Any],
     timeout: float,
     label: str,
+    params: Optional[Mapping[str, Any]] = None,
     sleep=time.sleep,
 ) -> httpx.Response:
     """POST, retrying only what is worth retrying. An HTTP error status is returned
@@ -62,7 +63,7 @@ def post_json(
     try:
         with outbound.client(timeout=split_timeout(timeout)) as http:
             for attempt in range(MAX_ATTEMPTS):
-                response = http.post(url, headers=dict(headers), json=dict(body))
+                response = http.post(url, headers=dict(headers), json=dict(body), params=params)
                 if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
                     return response
                 delay = _retry_after(response, RETRY_BASE_DELAY * (2**attempt))

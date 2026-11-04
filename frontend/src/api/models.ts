@@ -38,6 +38,10 @@ export interface Model {
   max_tokens: number | null
   context_window: number | null
   embed_dims: number | null
+  /** What a text-to-speech model offers: ids, or objects with an `id`. */
+  voices: Array<string | { id: string }> | null
+  /** The model's own settings; for speech, the request format (see `SpeechSettings`). */
+  params: Record<string, unknown> | null
   pricing: Pricing | null
   /** What a call is actually costed at: the model's own price, or the catalogue's. */
   effective_pricing: Pricing | null
@@ -60,6 +64,10 @@ export type ModelUpdate = Partial<{
   max_tokens: number
   is_active: boolean
   pricing: Pricing
+  /** `[]` clears them. */
+  voices: string[]
+  /** `{}` clears them. */
+  params: Record<string, unknown>
 }>
 
 export interface CatalogEntry {
