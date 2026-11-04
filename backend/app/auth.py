@@ -294,6 +294,35 @@ def _refuse_disabled(session: Session, user_id: str) -> None:
 CurrentUser = Annotated[UserCtx, Depends(current_user)]
 
 
+def user_from_token(session: Session, token: str) -> UserCtx:
+    """A session token checked as `current_user` checks one, for the one caller that cannot
+    send a header or rely on the cookie path: a browser websocket (live dictation), which
+    carries the token in its query string. Raises the same HTTPExceptions."""
+    try:
+        payload = decode_token(token)
+    except JWTError as exc:
+        raise _unauthorized("Invalid or expired token") from exc
+    subject = payload.get("sub")
+    if not subject:
+        raise _unauthorized("Token carries no subject")
+    if payload.get("twofa_pending"):
+        raise _unauthorized("This sign-in still needs its second step")
+    _refuse_disabled(session, subject)
+    return UserCtx(id=subject, username=payload.get("username") or "")
+
+
+def origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
+    """Whether a page at `origin` may open a websocket here: this suite's own pages, or an
+    app in CORS_ORIGIN. CORS does not apply to websockets, so without this any site could
+    open one with a token it got hold of, as the person."""
+    origin_host = _host_of(origin or "")
+    if not origin_host:
+        return False
+    if host and origin_host == host.lower():
+        return True
+    return any(origin_host == _host_of(allowed) for allowed in settings.cors_origins)
+
+
 # ─── administrators ──────────────────────────────────────────────────────────
 #
 # An admin is a row with `User.is_admin` (the first account registered here, whoever an
