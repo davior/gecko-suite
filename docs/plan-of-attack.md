@@ -21,7 +21,8 @@ decisions that would otherwise look arbitrary.
 | M2 First consumers | Done. GVC's assistant ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) and GAM's enrichment, embeddings and new assistant ([davior/gam#58](https://github.com/davior/gam/pull/58)) are merged, behind `AI_BACKEND`. See "M2 as built" |
 | M3 | Done: the fal gateway, speech to text, text to speech (GVC narration), web search and personas, all merged (suite #5–#7; GAM [#59](https://github.com/davior/gam/pull/59), [#60](https://github.com/davior/gam/pull/60), [#61](https://github.com/davior/gam/pull/61); GVC [#39](https://github.com/davior/gvc/pull/39), [#40](https://github.com/davior/gvc/pull/40)). None of it has run against real fal, Deepgram or a search backend yet |
 | M4 | Done. The raw passthrough (suite #8), and Notes on the suite behind `AI_BACKEND=suite`: chat ([#213](https://github.com/davior/gecko-notes/pull/213)), web search ([#214](https://github.com/davior/gecko-notes/pull/214)), speech ([#215](https://github.com/davior/gecko-notes/pull/215)), image generation ([#216](https://github.com/davior/gecko-notes/pull/216)) and the Settings notes ([#217](https://github.com/davior/gecko-notes/pull/217)). None of it has run against the real suite or a vendor yet. See "M4 as built (Notes side)" |
-| M5–M8 | Not started |
+| M5 | In progress. Suite side: `/ai/chat` takes a vendor and model name (see "M5 as built (suite side)"). Notes' tool planner follows in its own PR, behind a per-person switch |
+| M6–M8 | Not started |
 
 ## Why this exists
 
@@ -394,6 +395,19 @@ goes, since the suite records usage. Its settings pages link here.
 
 **M5 — Notes assistant on tool calls.** As "Tool calling" item 3.
 
+**M5 as built (suite side).** Decided with the maintainer: the tool path uses the model picked
+in Notes' own assistant panel, it is switched on per person (off by default), and it exists
+only in suite mode (local mode keeps the text plan until M8).
+- **`/ai/chat` takes a `vendor` and `model` name** as a third way to name the target, beside
+  `task` and `model_ref`, and exactly one of the three is required. `SuiteChat(vendor=,
+  model_name=)` sends it.
+- **One rule for finding the provider**, shared with the raw passthrough
+  (`gateway/raw.find_by_name`): the caller's own providers of that vendor first, then shared;
+  among those, one with an active row for the model; else the first with a usable key.
+- **A model with no row gets an unsaved stand-in** whose capabilities are the catalogue's for
+  that name, or only chat and tools when the catalogue does not know it, so it is never
+  assumed to see images. Pricing follows the catalogue the same way, or is unknown.
+
 **M6 — Identity.** `User` accounts, `AuthToken`, 2FA, sign-in and registration,
 `/api/auth/session` and the `gecko_session` cookie move here from Notes, ids preserved
 (D7). Notes becomes a verifier like GAM and GVC. Possible follow-up: RS256, so apps verify
@@ -415,7 +429,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 |---|---|---|---|
 | SN-1 | Proxy routes (`/api/settings/ai-providers/proxy/*`) forward to the suite's raw passthrough; drop `_record_ai_usage` | M4 | Merged ([gecko-notes#213](https://github.com/davior/gecko-notes/pull/213)) |
 | SN-2 | Speech, image generation and web search call the suite | M3 / M4 | Merged: search [#214](https://github.com/davior/gecko-notes/pull/214), speech [#215](https://github.com/davior/gecko-notes/pull/215), images [#216](https://github.com/davior/gecko-notes/pull/216). Live transcription and voice mode stay on Notes' key |
-| SN-3 | Assistant moves from plan-as-text to tool calls on `run_agent`, keeping approval | M5 | Open |
+| SN-3 | Assistant moves from plan-as-text to tool calls on `run_agent`, keeping approval | M5 | In progress: suite side up; Notes' planner behind a per-person switch next |
 | SN-4 | Hand sign-in, accounts and 2FA to the suite; keep verifying the JWT | M6 | Open |
 | SN-5 | Settings → AI pages link to the suite | M4 | Merged ([gecko-notes#217](https://github.com/davior/gecko-notes/pull/217)) |
 | SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Open; not needed yet: Notes calls the suite server-side and only links to it. Revisit with M6 |
