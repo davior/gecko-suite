@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, func, select
 
 from app import crypto, outbound
+from app.config import settings
 from app.auth import CurrentUser
 from app.clock import utcnow
 from app.database import get_session
@@ -44,6 +45,8 @@ from app.vocab import (
     CHECKED_BASE_URL_VENDORS,
     KEYLESS_VENDORS,
     LLM_VENDORS,
+    VENDOR_DEEPGRAM,
+    VENDOR_FAL,
     VENDOR_OLLAMA,
     VENDORS,
 )
@@ -229,6 +232,38 @@ def _probe_result(status_code: int) -> ProviderTestResult:
     return ProviderTestResult(success=False, message=f"The provider returned HTTP {status_code}")
 
 
+# The vendors that are not chat models have no ten-token question to ask. Each is asked
+# something cheap and read-only that only a valid key may see, so a test spends nothing:
+# Deepgram its projects, fal.ai one model's price (what the suite asks before a job anyway).
+_KEY_PROBES = {
+    VENDOR_DEEPGRAM: lambda key: ("GET", f"{settings.deepgram_base_url.rstrip('/')}/v1/projects",
+                                  {"Authorization": f"Token {key}"}, None),
+    VENDOR_FAL: lambda key: ("GET", f"{settings.fal_api_base_url.rstrip('/')}/v1/models/pricing",
+                             {"Authorization": f"Key {key}"}, {"endpoint_id": "fal-ai/flux/dev"}),
+}
+
+
+def _probe_key_only(vendor: str, api_key: str) -> ProviderTestResult:
+    probe = _KEY_PROBES.get(vendor)
+    if probe is None:
+        return ProviderTestResult(success=False, message="This vendor cannot be tested")
+    method, url, headers, params = probe(api_key)
+    try:
+        with outbound.client(timeout=PROBE_TIMEOUT) as http:
+            response = http.request(method, url, headers=headers, params=params)
+    except httpx.TimeoutException:
+        return ProviderTestResult(success=False, message="The provider did not respond in time")
+    except httpx.HTTPError as exc:
+        logger.warning("Provider probe failed: %s", type(exc).__name__)
+        return ProviderTestResult(success=False, message="Could not reach that address")
+    if response.status_code == 200:
+        return ProviderTestResult(success=True, message="Connected")
+    # 400 is not "connected" here as it is for a chat probe: these requests are fixed, so
+    # a 400 means the vendor's API changed, which is worth saying rather than hiding.
+    return _probe_result(response.status_code) if response.status_code != 400 else ProviderTestResult(
+        success=False, message="The provider answered, but not as expected (HTTP 400)")
+
+
 @router.post("/test", response_model=DataResponse[ProviderTestResult])
 def test_provider(
     payload: ProviderTest, user: CurrentUser, session: Session = Depends(get_session)
@@ -257,15 +292,10 @@ def test_provider(
         api_key = api_key or crypto.decrypt(saved.api_key)
 
     vendor = _require_vendor(probe.vendor)
-    if vendor not in LLM_VENDORS:
-        return DataResponse(
-            data=ProviderTestResult(
-                success=False,
-                message="Testing this vendor arrives with media generation and speech (M3)",
-            )
-        )
     if not api_key and vendor not in KEYLESS_VENDORS:
         return DataResponse(data=ProviderTestResult(success=False, message="No API key is set"))
+    if vendor not in LLM_VENDORS:
+        return DataResponse(data=_probe_key_only(vendor, api_key))
 
     model_id = payload.model_id
     if not model_id and vendor != VENDOR_OLLAMA:
