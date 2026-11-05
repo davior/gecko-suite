@@ -132,6 +132,21 @@ def test_without_a_session_the_stream_is_refused(ws_client, fake, why, query):
     assert fake.url is None
 
 
+def test_the_shared_session_cookie_is_enough(deepgram_key, ws_client, fake):
+    # GVC keeps no token of its own: the browser sends the parent-domain cookie with the
+    # handshake, and that must sign the stream in.
+    ws_client.cookies.set("gecko_session", token())
+    with ws_client.websocket_connect(f"{STREAM}?app=gvc", headers=SAME_ORIGIN) as ws:
+        ws.send_bytes(b"hi")
+        assert ws.receive_json() == {"type": "interim", "text": "hi"}
+
+
+def test_the_cookie_does_not_let_another_site_in(deepgram_key, ws_client, fake):
+    ws_client.cookies.set("gecko_session", token())
+    code = closed_with(ws_client, f"{STREAM}?app=gvc", headers={"origin": "https://evil.example"})
+    assert code == live.CLOSE_FORBIDDEN and fake.url is None
+
+
 def test_a_page_from_another_site_is_refused(deepgram_key, ws_client, fake):
     # CORS does not cover websockets: this is what stops a stranger's page using a token.
     code = closed_with(ws_client, f"{STREAM}?token={token()}", headers={"origin": "https://evil.example"})

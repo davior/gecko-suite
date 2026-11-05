@@ -12,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session
 
 from app.auth import CurrentUser, origin_allowed, user_from_token
+from app.config import settings
 from app.database import get_session
 from app.schemas import DataResponse
 from app import crypto
@@ -92,12 +93,17 @@ async def live_transcription(
     language: Optional[str] = Query(default=None, max_length=20),
 ):
     """Live dictation (see `app/speech/live.py`). The token travels in the query because a
-    browser websocket cannot set headers; the page's origin is checked because CORS does not
+    browser websocket cannot set headers, or is the shared session cookie; the page's origin is checked because CORS does not
     cover websockets. Refusals are close codes the apps' clients already turn into sentences."""
     await websocket.accept()
     if not origin_allowed(websocket.headers.get("origin"), websocket.headers.get("host")):
         await websocket.close(code=live.CLOSE_FORBIDDEN, reason="origin_not_allowed")
         return
+    # The token in the query, from apps that keep one (Notes); else the shared session
+    # cookie, which the browser sends with the handshake from any app on the parent domain
+    # (GVC keeps no token of its own). The origin check above is what makes the cookie
+    # safe here: a page from another site never gets this far.
+    token = token or websocket.cookies.get(settings.auth_cookie_name, "")
     try:
         user = user_from_token(session, token)
         attributed = app_for(user, app)
