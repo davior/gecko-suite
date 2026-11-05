@@ -469,6 +469,14 @@ chosen means the app's plain light or dark, as before.
 - **The importer** brings Notes' themes (ids kept) and each person's active theme as their
   `theme.notes`; a background under Notes' `/media/` becomes an absolute Notes address.
 
+**Live dictation (after M7).** `WS /api/v1/ai/speech/stt/stream` relays a browser's microphone
+to Deepgram's streaming API with the suite's key, in Notes' protocol (binary audio, `{"type":
+"stop"}`; `interim` / `final` / `error` back), so the apps' clients port unchanged. The token
+travels in the query (a browser websocket cannot set headers) and is checked as `current_user`
+checks one; the page's origin must be the suite or in `CORS_ORIGIN`, since CORS does not cover
+websockets. One live session per person; the seconds Deepgram reports go in the ledger under
+the calling app. nginx passes the upgrade on that path only.
+
 **M8 — Remove the legacy code** in each app: local `AIProvider`, `UsageEvent`,
 `pricing.py`, provider routers and settings UIs, with drop migrations in GAM and GVC.
 
@@ -488,6 +496,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SN-6 | Add the suite's origin to `CORS_ORIGIN` / CSP | M1 | Done with M7: the suite's `CORS_ORIGIN` lists the apps, and each app's CSP (`connect-src`) lists the suite, since the theme picker calls it from the browser |
 | SN-7 | `AI_BACKEND`, `SUITE_BASE_URL`, `SUITE_APP_ID=notes`, `SUITE_APP_SECRET` and `SUITE_PUBLIC_URL` in `.env.example` and compose, read in `app/suite.py` (Notes has no `config.py`) | M4 | Merged ([#213](https://github.com/davior/gecko-notes/pull/213), [#217](https://github.com/davior/gecko-notes/pull/217)) |
 | SN-8 | Themes from the suite (M7): apply this app's choice (`theme.notes`), the header picker, Settings → Themes links to the suite's editor, and a shared note keeps a snapshot of its theme. CSP: `connect-src` gains the suite, `img-src` any https (backgrounds are addresses people paste) | M7 | Merged ([#222](https://github.com/davior/gecko-notes/pull/222)) |
+| SN-9 | Live dictation through the suite's stream (`/ai/speech/stt/stream`) instead of Notes' own Deepgram relay and key, with `AI_BACKEND=suite`. Needed before M8 removes Notes' keys | M7 | Open |
 
 **infra** (the reverse proxy)
 
@@ -518,6 +527,7 @@ Applied in those repositories, not from here. Ids are stable; reference them in 
 | SV-4 | `CLAUDE.md`: "the one runtime dependency on Notes is login" becomes "on gecko-suite, for login and AI"; update D3, D4 and open decision #4 | M2 | Merged ([davior/gvc#38](https://github.com/davior/gvc/pull/38)) |
 | SV-5 | `SUITE_BASE_URL`, `SUITE_APP_ID=gvc` and `SUITE_APP_SECRET` in `app/config.py` and `.env.example`; the assistant worker calls as the app, since it holds the token only in memory | M2 | Not needed: see "M2 as built" |
 | SV-6 | Themes from the suite (M7), as SA-8 with `APP='gvc'` | M7 | Merged ([davior/gvc#42](https://github.com/davior/gvc/pull/42)) |
+| SV-7 | Live dictation in the assistant's prompt, from the suite's stream | M7 | Open |
 
 ## Open questions
 

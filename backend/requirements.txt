@@ -1,5 +1,8 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
+# Live dictation (app/speech/live.py) relays to Deepgram's streaming API. uvicorn[standard]
+# pulls it in too, unpinned; pinned here because live.py uses its asyncio client (14+).
+websockets==14.1
 sqlmodel==0.0.19
 pydantic-settings==2.3.4
 alembic==1.13.2

@@ -4,15 +4,28 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket
 from pydantic import BaseModel, Field
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session
 
-from app.auth import CurrentUser
+from app.auth import CurrentUser, origin_allowed, user_from_token
 from app.database import get_session
 from app.schemas import DataResponse
-from app.speech import deepgram, stt, tts
+from app import crypto
+from app.models.usage import UsageEvent
+from app.services.access import app_for
+from app.services.vendor_keys import find_provider
+from app.speech import deepgram, live, stt, tts
+from app.vocab import VENDOR_DEEPGRAM
+
+logger = logging.getLogger(__name__)
+
+# One live dictation per person, as in Notes: a second tab's mic would otherwise double the
+# minutes, and nobody dictates into two places at once.
+_live_sessions: set[str] = set()
 
 router = APIRouter()
 
@@ -67,3 +80,66 @@ def speak(body: SpeakRequest, user: CurrentUser, session: Session = Depends(get_
     return Response(content=spoken.audio, media_type=spoken.media_type, headers={
         "X-Speech-Provider": spoken.vendor, "X-Speech-Model": spoken.model_ref,
         "X-Speech-Voice": spoken.voice, "X-Speech-Cached": "true" if spoken.cached else "false"})
+
+
+@router.websocket("/stt/stream")
+async def live_transcription(
+    websocket: WebSocket,
+    session: Session = Depends(get_session),
+    token: str = Query(default=""),
+    app: Optional[str] = Query(default=None),
+    model: str = Query(default=live.DEFAULT_MODEL, max_length=60),
+    language: Optional[str] = Query(default=None, max_length=20),
+):
+    """Live dictation (see `app/speech/live.py`). The token travels in the query because a
+    browser websocket cannot set headers; the page's origin is checked because CORS does not
+    cover websockets. Refusals are close codes the apps' clients already turn into sentences."""
+    await websocket.accept()
+    if not origin_allowed(websocket.headers.get("origin"), websocket.headers.get("host")):
+        await websocket.close(code=live.CLOSE_FORBIDDEN, reason="origin_not_allowed")
+        return
+    try:
+        user = user_from_token(session, token)
+        attributed = app_for(user, app)
+    except HTTPException as exc:
+        code = live.CLOSE_UNAUTHORIZED if exc.status_code == 401 else live.CLOSE_FORBIDDEN
+        await websocket.close(code=code, reason=str((exc.detail or {}).get("code", "refused")))
+        return
+    if not model.replace("-", "").replace(".", "").replace("_", "").isalnum() or (
+            language and not language.replace("-", "").isalnum()):
+        await websocket.close(code=live.CLOSE_FORBIDDEN, reason="bad_parameters")
+        return
+    provider = find_provider(session, user.id, VENDOR_DEEPGRAM)
+    if provider is None:
+        await websocket.close(code=live.CLOSE_NO_KEY, reason="no_deepgram_key")
+        return
+    if user.id in _live_sessions:
+        await websocket.close(code=live.CLOSE_BUSY, reason="stream_already_active")
+        return
+
+    _live_sessions.add(user.id)
+    seconds = 0.0
+    try:
+        try:
+            upstream = await live.open_upstream(live.listen_url(model, language),
+                                                crypto.decrypt(provider.api_key))
+        except Exception as exc:
+            logger.warning("Could not reach Deepgram for live dictation: %r", exc)
+            await websocket.send_json({"type": "error", "message": "Could not reach Deepgram. Try again."})
+            await websocket.close()
+            return
+        seconds = await live.relay(websocket, upstream)
+    finally:
+        _live_sessions.discard(user.id)
+        # Recorded before the close below, so whoever sees the stream end sees it counted.
+        if seconds > 0:
+            session.add(UsageEvent(
+                user_id=user.id, app=attributed, task="speech.stt", kind="stt",
+                provider_id=provider.id, provider_name=provider.name, vendor=VENDOR_DEEPGRAM,
+                model=model, units=live.billable_seconds(seconds), unit_type="seconds", cost=None,
+                subject_ref="live-dictation"))
+            session.commit()
+    try:
+        await websocket.close()
+    except Exception:
+        pass
