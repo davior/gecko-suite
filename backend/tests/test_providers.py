@@ -141,3 +141,33 @@ def test_another_users_provider_cannot_be_probed(auth_client, switch_user, vendo
     res = auth_client.post("/api/v1/providers/test", json={"provider_id": pid, "model_id": "m"})
     assert res.status_code == 404
     assert vendors.calls == []
+
+
+# ─── vendors that are not chat models ─────────────────────────────────────────
+
+
+def test_a_deepgram_key_is_tested_by_asking_for_its_projects(auth_client, vendors):
+    res = auth_client.post("/api/v1/providers", json={"name": "Deepgram", "vendor": "deepgram",
+                                                     "api_key": "dg-secret"})
+    pid = res.json()["data"]["id"]
+    # No model is needed: the key is the whole question.
+    res = auth_client.post("/api/v1/providers/test", json={"provider_id": pid})
+    assert res.json()["data"] == {"success": True, "message": "Connected"}
+    sent = vendors.calls[-1]
+    assert (sent.method, str(sent.url)) == ("GET", "https://api.deepgram.com/v1/projects")
+    assert sent.headers["authorization"] == "Token dg-secret"
+    assert "dg-secret" not in res.text
+
+
+def test_a_fal_key_is_tested_with_a_price_lookup_that_spends_nothing(auth_client, vendors):
+    res = auth_client.post("/api/v1/providers/test", json={"vendor": "fal", "api_key": "fal-secret"})
+    assert res.json()["data"]["success"] is True
+    sent = vendors.calls[-1]
+    assert sent.method == "GET" and sent.url.path == "/v1/models/pricing"
+    assert sent.headers["authorization"] == "Key fal-secret"
+
+
+def test_a_rejected_speech_key_says_so(auth_client, vendors):
+    vendors.respond = lambda request: httpx.Response(401, json={})
+    res = auth_client.post("/api/v1/providers/test", json={"vendor": "deepgram", "api_key": "bad"})
+    assert res.json()["data"] == {"success": False, "message": "The API key was rejected"}
