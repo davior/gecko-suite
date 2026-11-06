@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { AlertTriangle, LogIn } from 'lucide-react'
-import { redirectToLogin, signsInHere } from '@/api/auth'
-import { currentConfig } from '@/api/config'
+import { redirectToLogin } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 
 interface Props {
@@ -58,10 +57,6 @@ export default function RequireAuth({ children }: Props) {
   }
 
   if (status === 'anonymous') {
-    // App.tsx fetches the config at boot, so by the time a check has failed it is
-    // normally here; without it, Notes is the safer thing to name (it is the default).
-    const config = currentConfig()
-    const here = config ? signsInHere(config.notes_base_url) : false
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-900">
         <div className="card max-w-md space-y-4 p-6 text-center">
@@ -76,18 +71,15 @@ export default function RequireAuth({ children }: Props) {
             {error ? 'Gecko Suite unavailable' : 'Sign in to continue'}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            {error ??
-              (here
-                ? 'One account for every Gecko app.'
-                : 'Gecko Suite uses your Gecko Notes account.')}
+            {error ?? 'One account for every Gecko app.'}
           </p>
           {!error && (
             <button
               type="button"
               className="btn btn-primary w-full"
-              onClick={() => void redirectToLogin()}
+              onClick={() => redirectToLogin()}
             >
-              {here ? 'Sign in' : 'Sign in with Gecko Notes'}
+              Sign in
             </button>
           )}
         </div>

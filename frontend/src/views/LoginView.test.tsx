@@ -30,7 +30,6 @@ beforeEach(() => {
   vi.spyOn(client, 'get').mockResolvedValue({
     data: {
       data: {
-        notes_base_url: window.location.origin,
         login_redirect_origins: ['https://notes.example.test'],
         email_enabled: true,
       },

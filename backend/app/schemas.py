@@ -36,11 +36,10 @@ class ClientConfig(BaseModel):
     """The settings the browser needs, served rather than compiled in.
 
     Readable by anyone who can reach the app — the endpoint has to be unauthenticated,
-    because it carries the address of the sign-in page. Nothing secret goes in this
+    because the sign-in page reads it. Nothing secret goes in this
     model, and a test asserts the field set so adding one is a deliberate act.
     """
 
-    notes_base_url: str
     # Where the sign-in page may send someone afterwards (M6): its own origin and these.
     login_redirect_origins: List[str] = []
     # Whether "forgot password" and emailed codes can work at all.

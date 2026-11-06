@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { safeRedirect } from '@/api/accounts'
-import { signsInHere } from '@/api/auth'
 
 const HERE = 'https://suite.example.test'
 const ALLOWED = ['https://notes.example.test', 'https://assets.example.test/']
@@ -39,14 +38,5 @@ describe('safeRedirect', () => {
   it('is null when nothing was asked', () => {
     expect(safeRedirect(null, ALLOWED, HERE)).toBeNull()
     expect(safeRedirect('', ALLOWED, HERE)).toBeNull()
-  })
-})
-
-describe('signsInHere', () => {
-  it('is true only when NOTES_BASE_URL is this suite', () => {
-    // The cutover is this one setting: before it, sign-in stays at Notes.
-    expect(signsInHere('https://suite.example.test', HERE)).toBe(true)
-    expect(signsInHere('https://suite.example.test/', HERE)).toBe(true)
-    expect(signsInHere('https://notes.example.test', HERE)).toBe(false)
   })
 })
