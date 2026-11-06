@@ -39,6 +39,31 @@ def split_timeout(timeout: float) -> httpx.Timeout:
     )
 
 
+def timeout_error(label: str, exc: httpx.TimeoutException, limits: httpx.Timeout) -> UpstreamError:
+    """The error for a timed-out call, saying which timer fired and how long it waited.
+
+    "Did not respond in time" alone hid the one thing that tells a hung vendor from a
+    dead network or a stalled upload: a read timeout is the vendor taking the request and
+    never answering, a write timeout is the upload stalling, a connect timeout is nothing
+    answering at all. Each has a different remedy, and a person (or an app deciding
+    whether to retry) only sees this sentence. The code stays `upstream_timeout`, and the
+    sentence still starts as it did.
+    """
+    if isinstance(exc, httpx.ConnectTimeout):
+        phase, seconds = "while connecting", limits.connect
+    elif isinstance(exc, httpx.WriteTimeout):
+        phase, seconds = "while we were sending the request", limits.write
+    elif isinstance(exc, httpx.ReadTimeout):
+        phase, seconds = "waiting for its answer", limits.read
+    else:
+        phase, seconds = "waiting for a free connection", limits.pool
+    logger.warning("%s timed out (%s) %s after %s s", label, type(exc).__name__, phase,
+                   f"{seconds:.0f}" if seconds is not None else "?")
+    waited = f" after {seconds:.0f} s" if seconds is not None else ""
+    return UpstreamError(f"{label} did not respond in time (gave up {phase}{waited})",
+                         status=504, code="upstream_timeout")
+
+
 def _retry_after(response: httpx.Response, fallback: float) -> float:
     raw = response.headers.get("retry-after")
     try:
@@ -60,8 +85,9 @@ def post_json(
 ) -> httpx.Response:
     """POST, retrying only what is worth retrying. An HTTP error status is returned
     as-is, because only the caller knows how to read its body."""
+    limits = split_timeout(timeout)
     try:
-        with outbound.client(timeout=split_timeout(timeout)) as http:
+        with outbound.client(timeout=limits) as http:
             for attempt in range(MAX_ATTEMPTS):
                 response = http.post(url, headers=dict(headers), json=dict(body), params=params)
                 if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
@@ -71,8 +97,7 @@ def post_json(
                 sleep(delay)
             return response
     except httpx.TimeoutException as exc:
-        raise UpstreamError(f"{label} did not respond in time", status=504,
-                            code="upstream_timeout") from exc
+        raise timeout_error(label, exc, limits) from exc
     except httpx.RequestError as exc:
         # The exception type, not its text: its message can carry the URL, and a custom
         # provider's URL is user-supplied.
@@ -91,8 +116,9 @@ def post_bytes(
     sleep=time.sleep,
 ) -> httpx.Response:
     """POST a raw body (audio), with `post_json`'s retries and error mapping."""
+    limits = split_timeout(timeout)
     try:
-        with outbound.client(timeout=split_timeout(timeout)) as http:
+        with outbound.client(timeout=limits) as http:
             for attempt in range(MAX_ATTEMPTS):
                 response = http.post(url, headers=dict(headers), content=content, params=params)
                 if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
@@ -100,8 +126,7 @@ def post_bytes(
                 sleep(_retry_after(response, RETRY_BASE_DELAY * (2**attempt)))
             return response
     except httpx.TimeoutException as exc:
-        raise UpstreamError(f"{label} did not respond in time", status=504,
-                            code="upstream_timeout") from exc
+        raise timeout_error(label, exc, limits) from exc
     except httpx.RequestError as exc:
         raise UpstreamError(f"Could not reach {label} ({type(exc).__name__})",
                             code="upstream_unreachable") from exc
@@ -121,8 +146,9 @@ def request(
 
     For status polls, result fetches and cancels, which carry no JSON of their own.
     """
+    limits = split_timeout(timeout)
     try:
-        with outbound.client(timeout=split_timeout(timeout)) as http:
+        with outbound.client(timeout=limits) as http:
             for attempt in range(MAX_ATTEMPTS):
                 response = http.request(method, url, headers=dict(headers), params=params)
                 if response.status_code not in RETRY_STATUS_CODES or attempt == MAX_ATTEMPTS - 1:
@@ -130,8 +156,7 @@ def request(
                 sleep(_retry_after(response, RETRY_BASE_DELAY * (2**attempt)))
             return response
     except httpx.TimeoutException as exc:
-        raise UpstreamError(f"{label} did not respond in time", status=504,
-                            code="upstream_timeout") from exc
+        raise timeout_error(label, exc, limits) from exc
     except httpx.RequestError as exc:
         raise UpstreamError(f"Could not reach {label} ({type(exc).__name__})",
                             code="upstream_unreachable") from exc

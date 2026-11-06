@@ -145,6 +145,29 @@ def test_deepgrams_refusals_are_sentences_with_the_remedy(
     assert _events(session) == []
 
 
+@pytest.mark.parametrize("error, phase, seconds", [
+    (httpx.ReadTimeout, "waiting for its answer", "1800"),
+    (httpx.WriteTimeout, "while we were sending the request", "30"),
+    (httpx.ConnectTimeout, "while connecting", "10")])
+def test_a_timeout_says_which_timer_fired_and_after_how_long(
+        auth_client, session, deepgram, error, phase, seconds):
+    """A hung vendor, a stalled upload and a dead network are different problems with
+    different remedies; "did not respond in time" alone could not tell them apart."""
+    _deepgram_provider(auth_client)
+
+    def hang(request):
+        raise error("timed out", request=request)
+
+    deepgram.respond = hang
+    res = _transcribe(auth_client)
+    assert res.status_code == 504 and res.json()["detail"]["code"] == "upstream_timeout"
+    message = res.json()["detail"]["message"]
+    # Still opens as it always did, so nothing matching on it breaks.
+    assert message.startswith("Deepgram did not respond in time")
+    assert phase in message and f"after {seconds} s" in message
+    assert _events(session) == []
+
+
 def test_a_model_name_that_could_alter_the_request_is_refused(auth_client, deepgram):
     _deepgram_provider(auth_client)
     res = _transcribe(auth_client, model="nova-3&callback=https://evil.example")
