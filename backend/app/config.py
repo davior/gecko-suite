@@ -62,9 +62,12 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = True
     # How long a session lasts. Notes' 30 days, so a token from either issuer ends alike.
     access_token_days: int = 30
-    # Where an unauthenticated visitor is sent to sign in. Notes until the cutover (M6);
-    # pointing it at the suite's own address is how the suite takes over sign-in.
-    notes_base_url: str = "https://notes.geckopico.com"
+    # Retired. It was where people signed in, and pointing it at the suite was the M6
+    # cutover; but the same name meant "where Notes is" in GAM and GVC, which sent their
+    # calls to Notes to the suite. The suite now always signs people in on its own pages,
+    # as Notes (IDENTITY_PROVIDER=suite), GAM and GVC expect. Read only so the app can say,
+    # once at startup, that it is set and ignored.
+    notes_base_url: str = ""
     # Where a `?redirect=` after signing in may lead: these origins (comma-separated) and
     # the suite's own. Anything else lands on the suite, so the sign-in page cannot be used
     # to bounce someone to a look-alike site.

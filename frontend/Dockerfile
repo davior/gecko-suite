@@ -14,12 +14,10 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Copied as is: nothing in it is substituted any more. The Notes origin in connect-src
+# (NOTES_BASE_URL) went when the suite started signing people in on its own pages.
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-# The CSP's connect-src, substituted at container start, not build time.
-ENV NOTES_BASE_URL=https://notes.geckopico.com
-
-# Only this one is substituted; nginx's own $variables ($uri, $host …) must survive.
-CMD ["/bin/sh", "-c", "envsubst '${NOTES_BASE_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]

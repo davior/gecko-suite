@@ -4,9 +4,8 @@ import client from '@/api/client'
  * Settings the browser is told at runtime rather than compiled with.
  *
  * A Vite `import.meta.env` value is fixed when the bundle is *built*, so a setting read
- * that way needs one image per environment and cannot be changed by a deployment. That
- * is why `NOTES_BASE_URL` could be set in `.env`, plumbed through docker-compose, and
- * still have no effect on where the sign-in button pointed.
+ * that way needs one image per environment and cannot be changed by a deployment, which
+ * is how a setting once went into `.env`, through docker-compose, and changed nothing.
  *
  * Fetched once and held here, not in a Zustand store: it is the same for everybody, it
  * never changes while the tab is open, and `redirectToLogin` has to be able to reach it
@@ -14,8 +13,6 @@ import client from '@/api/client'
  */
 
 export interface ClientConfig {
-  /** Where people sign in. Notes until the M6 cutover; this suite's own URL after it. */
-  notes_base_url: string
   /** Origins a `?redirect=` after signing in here may lead to. */
   login_redirect_origins: string[]
   /** Whether the suite can send mail: recovery and email codes need it. */

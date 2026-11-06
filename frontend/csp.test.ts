@@ -64,10 +64,9 @@ describe('Content-Security-Policy', () => {
     expect(policy()).not.toContain('unsafe-eval')
   })
 
-  it('keeps the Notes origin templated rather than hardcoded', () => {
-    // It has to follow NOTES_BASE_URL, or a deployment pointing somewhere else gets a
-    // policy nobody edited silently blocking its auth fetch.
-    expect(directive('connect-src')).toContain('${NOTES_BASE_URL}')
-    expect(directive('connect-src')).not.toContain('geckopico.com')
+  it('calls nothing but itself', () => {
+    // The suite signs people in on its own pages, so no other origin is needed; the Notes
+    // origin it once carried (NOTES_BASE_URL) went with the setting.
+    expect(directive('connect-src')).toBe("connect-src 'self'")
   })
 })

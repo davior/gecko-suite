@@ -69,8 +69,7 @@ export default function App() {
       <ThemeBackdrop />
       <Routes>
         {/* Signed-out pages. The paths are Notes' own, so the links in mail (built from
-          APP_BASE_URL) and every app's `${NOTES_BASE_URL}/login?redirect=` land on the
-          right page once NOTES_BASE_URL points here. */}
+          APP_BASE_URL) and every app's `{suite}/login?redirect=` land on the right page. */}
         <Route path="/login" element={<LoginView />} />
         <Route path="/register" element={<RegisterView />} />
         <Route path="/forgot-password" element={<ForgotPasswordView />} />

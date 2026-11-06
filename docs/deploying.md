@@ -86,7 +86,6 @@ Then edit `.env`:
 | `JWT_SECRET_KEY` | **The same value as Notes', GAM's and GVC's.** Otherwise every sign-in is refused. |
 | `SUITE_ENCRYPTION_KEYS` | A new key, from the command below. It encrypts every API key the suite holds. **Store a copy somewhere other than this server's `data/`**: a database backup without it is a backup of keys nobody can read. |
 | `ADMIN_USERS` | Your Gecko Notes username. Admins set up the providers and routing everyone shares. |
-| `NOTES_BASE_URL` | `https://notes.geckopico.com` (the default). |
 | `COMPOSE_FILE` | `docker-compose.yml:docker-compose.prod.yml`, so the frontend joins the `web` network. **Without it the site answers 502**: Caddy cannot find `suite-frontend`, although the suite itself runs and passes its health check. It is commented out in `.env.example`, so uncomment it. |
 | `APP_PORT` | Leave at `18084` unless it is taken. |
 
@@ -348,21 +347,19 @@ docker compose up -d
 Notes' login, registration and recovery pages now send people to the suite, and its
 account settings link there. Someone signed in to Notes stays signed in.
 
-**5. Switch the sign-in links of the suite, GAM and GVC.** In each one's `.env`:
-
-```bash
-NOTES_BASE_URL=https://suite.geckopico.com
-```
-
-Then `docker compose up -d` in each. (Without this they still work: they send people to
-Notes, which hands them on to the suite. This only saves the extra hop.)
+**5. The suite, GAM and GVC.** Nothing to set: the suite signs people in on its own pages,
+and GAM and GVC send people to the suite's address (`SUITE_PUBLIC_URL`, else
+`SUITE_BASE_URL`), as Notes does. An old `NOTES_BASE_URL` in any of their `.env` files is
+ignored, and each logs a reminder at startup until it is removed. In GAM and GVC the Notes
+app's own address is `NOTES_URL` (default `https://notes.geckopico.com`).
 
 **6. Verify.** In a private window: open GAM, which should send you to the suite's sign-in
 and back to GAM once signed in; then open Notes and GVC, which should need no second
 sign-in. Sign out in any of them and reload the others: they should ask you to sign in.
 
-**Undo** in reverse order: `NOTES_BASE_URL` back to Notes' address in the three apps, then
-`IDENTITY_PROVIDER=notes` in Notes, restarting each. Passwords changed in the suite since the
+**Undo:** `IDENTITY_PROVIDER=notes` in Notes, restarting it. The suite, GAM and GVC keep
+sending people to the suite's sign-in, which still works for every account it imported;
+there is no longer a setting that points them back at Notes. Passwords changed in the suite since the
 cutover are not copied back to Notes: those people use their old Notes password again.
 
 **A limit to know:** a session lasts 30 days wherever it is checked. Disabling someone on

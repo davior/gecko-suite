@@ -6,9 +6,9 @@ import type { DataResponse } from '@/api/envelope'
  * account and its two-factor settings. `/api/v1/auth` is Notes' own auth API, ported, so
  * the shapes and sentences are Notes'.
  *
- * Until the cutover (`NOTES_BASE_URL` pointed at the suite), Notes still signs people in
- * and most sessions here have no suite account behind them: `me()` then answers 404
- * `no_account`, which the account page reads as "managed by Notes", not as a failure.
+ * A session from before the suite signed people in may have no suite account behind it:
+ * `me()` then answers 404 `no_account`, which the account page reads as "managed by
+ * Notes", not as a failure.
  */
 
 export interface Account {

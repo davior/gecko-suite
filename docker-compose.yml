@@ -18,7 +18,8 @@ services:
       # start. Losing it loses every stored key, so back it up apart from data/.
       - SUITE_ENCRYPTION_KEYS=${SUITE_ENCRYPTION_KEYS}
       - CORS_ORIGIN=${CORS_ORIGIN:-}
-      - NOTES_BASE_URL=${NOTES_BASE_URL:-https://notes.geckopico.com}
+      # Passed only so the app can warn that it is set and no longer read.
+      - NOTES_BASE_URL=${NOTES_BASE_URL:-}
       - ADMIN_USERS=${ADMIN_USERS:-}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       # Accounts (M6): the shared session cookie, where sign-in may send someone back to,
@@ -55,9 +56,6 @@ services:
     ports:
       # 18081 is Notes, 18082 GAM and 18083 GVC.
       - "${APP_PORT:-18084}:80"
-    environment:
-      # The CSP's connect-src; must agree with the backend's value.
-      - NOTES_BASE_URL=${NOTES_BASE_URL:-https://notes.geckopico.com}
     depends_on:
       - suite-backend
     networks:

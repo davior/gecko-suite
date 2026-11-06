@@ -46,6 +46,11 @@ async def lifespan(_app: FastAPI):
     from app.schema_check import log_if_behind
 
     log_if_behind(engine)
+    if settings.notes_base_url.strip():
+        logger.warning(
+            "NOTES_BASE_URL is set but no longer read: the suite signs people in on its own "
+            "pages. Remove it from .env (and from GAM's and GVC's, where Notes is now NOTES_URL)."
+        )
     yield
 
 
@@ -108,13 +113,11 @@ def health() -> HealthResponse:
 
 @app.get("/api/config", response_model=DataResponse[ClientConfig])
 def client_config() -> DataResponse[ClientConfig]:
-    """What the browser needs before anybody is signed in: where to sign in.
-
-    Served at runtime rather than compiled into the bundle, so pointing a running
-    container at a different Notes is a restart, not a rebuild (GAM learnt this one).
+    """What the browser needs before anybody is signed in: where a sign-in may send it back
+    to, and whether mail can be sent. Served at runtime rather than compiled into the
+    bundle, so a deployment's values take effect on restart (GAM learnt this one).
     """
-    return DataResponse(data=ClientConfig(notes_base_url=settings.notes_base_url,
-                                          login_redirect_origins=settings.redirect_origins,
+    return DataResponse(data=ClientConfig(login_redirect_origins=settings.redirect_origins,
                                           email_enabled=settings.email_enabled))
 
 
