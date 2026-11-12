@@ -458,6 +458,8 @@ def _sse_body(events):
 def _frames(text):
     frames = []
     for chunk in text.strip().split("\n\n"):
+        if chunk.startswith(":"):
+            continue  # a comment (keepalive), which every SSE reader skips
         lines = dict(line.split(": ", 1) for line in chunk.split("\n"))
         frames.append((lines["event"], json.loads(lines["data"])))
     return frames
@@ -498,6 +500,52 @@ def test_an_anthropic_stream_with_a_tool_call(auth_client, claude, vendors, sess
     assert sent["tools"][0]["eager_input_streaming"] is True
     event = session.get(UsageEvent, final["usage_event_id"])
     assert (event.input_tokens, event.output_tokens) == (20, 12)
+
+
+def test_a_stream_writing_a_tool_call_sends_keepalives(auth_client, claude, vendors, monkeypatch):
+    """Minutes of tool input (or thinking) carry no text, so without these a caller's
+    read timeout would fire on a stream that is working."""
+    from app.gateway import chat as gateway_chat
+
+    monkeypatch.setattr(gateway_chat, "KEEPALIVE_SECONDS", 0)
+    events = [
+        {"type": "message_start", "message": {"content": [], "usage": {}}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Hmm"}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "content_block_start", "index": 1,
+         "content_block": {"type": "tool_use", "id": "tu_1", "name": "search_assets", "input": {}}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"q": '}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '"cat"}'}},
+        {"type": "content_block_stop", "index": 1},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+        {"type": "message_stop"},
+    ]
+    vendors.respond = lambda r: httpx.Response(200, content=_sse_body(events))
+    res = _chat(auth_client, tools=[TOOL], stream=True)
+    assert res.text.count(": keepalive\n\n") == 3
+    final = _frames(res.text)[-1][1]
+    assert final["tool_calls"][0]["arguments"] == {"q": "cat"}
+
+    # Throttled: a fast stream is not a keepalive per token.
+    monkeypatch.setattr(gateway_chat, "KEEPALIVE_SECONDS", 3600)
+    assert ": keepalive" not in _chat(auth_client, tools=[TOOL], stream=True).text
+
+
+def test_an_openai_stream_keeps_alive_through_tool_fragments_and_reasoning(
+        auth_client, gpt, vendors, monkeypatch):
+    from app.gateway import chat as gateway_chat
+
+    monkeypatch.setattr(gateway_chat, "KEEPALIVE_SECONDS", 0)
+    chunks = [
+        {"model": "gpt-4.1-mini", "choices": [{"delta": {"reasoning_content": "Thinking"}}]},
+        {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "search_assets", "arguments": '{"q": "owl"}'}}]}, "finish_reason": "tool_calls"}]},
+    ]
+    body = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    vendors.respond = lambda r: httpx.Response(200, content=body.encode())
+    res = _chat(auth_client, tools=[TOOL], stream=True)
+    assert res.text.count(": keepalive\n\n") == 2
+    assert _frames(res.text)[-1][1]["tool_calls"][0]["arguments"] == {"q": "owl"}
 
 
 def test_a_cut_off_streamed_tool_input_is_flagged(auth_client, claude, vendors):

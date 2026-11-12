@@ -451,7 +451,8 @@ def _finish_tool_input(block: dict, raw: Optional[str]) -> None:
 
 
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
-    """Yield ("delta", text) as text arrives, then ("final", Reply)."""
+    """Yield ("delta", text) as text arrives, ("progress", None) for other output, then
+    ("final", Reply)."""
     body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
     stalled: list[dict] = []
     spent = Usage()
@@ -459,7 +460,7 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
         message: Any = None
         try:
             for kind, value in message_events(url_for(target), headers, body, label=target.provider_name):
-                if kind == "delta":
+                if kind in ("delta", "progress"):
                     yield kind, value
                 else:
                     message = value
@@ -478,6 +479,9 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
 def message_events(url: str, headers: dict, body: dict, *, label: str,
                    read_timeout: float = STREAM_READ_TIMEOUT) -> Iterator[tuple[str, Any]]:
     """Stream a Messages request: ("delta", text) as text arrives, then ("message", dict).
+
+    ("progress", None) marks output that is not text (a tool's input, thinking), so a
+    caller can show the stream is alive through minutes of a large tool call.
 
     Reassembles the same message the blocking endpoint would return (ported from Notes'
     `_iter_anthropic_events`), so `parse` reads both, and so the raw passthrough can hand
@@ -522,8 +526,10 @@ def message_events(url: str, headers: dict, body: dict, *, label: str,
                         yield "delta", chunk
                 elif dtype == "input_json_delta":
                     buffers[index] = buffers.get(index, "") + delta.get("partial_json", "")
+                    yield "progress", None
                 elif dtype == "thinking_delta":
                     block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+                    yield "progress", None
                 elif dtype == "signature_delta":
                     block["signature"] = block.get("signature", "") + delta.get("signature", "")
                 elif dtype == "citations_delta" and delta.get("citation") is not None:

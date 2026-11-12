@@ -71,6 +71,25 @@ def test_a_stream_is_notes_frames(auth_client, claude, vendors):
     assert kind == "final" and final["content"] == [{"type": "text", "text": "Hello"}]
 
 
+def test_a_proxied_stream_sends_notes_nothing_for_a_tool_input(auth_client, claude, vendors):
+    """Notes reads only delta and final; the progress the gateway turns into keepalives
+    is not a frame here."""
+    events = [
+        {"type": "message_start", "message": {"content": [], "usage": {}}},
+        {"type": "content_block_start", "index": 0,
+         "content_block": {"type": "tool_use", "id": "tu_1", "name": "x", "input": {}}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{}"}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+        {"type": "message_stop"},
+    ]
+    vendors.respond = lambda r: _sse(events)
+    res = auth_client.post("/api/v1/ai/proxy/anthropic/stream", json=_anthropic_body())
+    frames = _frames(res.text)
+    assert [kind for kind, _ in frames] == ["final"]
+    assert frames[0][1]["content"][0]["type"] == "tool_use"
+
+
 def test_a_stream_usage_is_recorded_once(auth_client, claude, vendors, session):
     from sqlmodel import select
 

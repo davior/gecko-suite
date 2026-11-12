@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Iterator, Optional
 
 from fastapi import HTTPException, status
@@ -25,6 +26,10 @@ from app.usage.ledger import record_chat
 from app.vocab import KEYLESS_VENDORS, LLM_VENDORS, TASK_REQUIRES, TASKS
 
 logger = logging.getLogger(__name__)
+
+# How often a stream with nothing to show (a tool call or thinking being written) sends a
+# comment frame, well inside any caller's read timeout (the client's is ten minutes).
+KEEPALIVE_SECONDS = 15.0
 
 
 def _not_configured(task: str) -> HTTPException:
@@ -289,8 +294,18 @@ def run_stream(session: Session, user: UserCtx, request: ChatRequest) -> Iterato
     target, task, max_tokens, params = prepare(session, user, request)
 
     def frames() -> Iterator[str]:
+        last_sent = time.monotonic()
         try:
             for kind, value in _adapter(target).stream(target, request, max_tokens=max_tokens, params=params):
+                if kind == "progress":
+                    # A comment frame: every SSE reader skips it, but it is bytes on the
+                    # wire, so a caller's read timeout does not fire while the model
+                    # spends minutes writing one large tool call or thinking.
+                    if time.monotonic() - last_sent >= KEEPALIVE_SECONDS:
+                        last_sent = time.monotonic()
+                        yield ": keepalive\n\n"
+                    continue
+                last_sent = time.monotonic()
                 if kind == "delta":
                     yield _sse("delta", {"text": value})
                 elif kind == "final":
