@@ -29,6 +29,7 @@ class ProviderRead(BaseModel):
     base_url: Optional[str] = None
     use_anthropic_api: bool
     extra_params: Optional[dict[str, Any]] = None
+    max_tokens: Optional[int] = None
     enabled: bool
     api_key_configured: bool
     # Whether the caller may change it: theirs, or an instance one and they are an admin.
@@ -47,6 +48,7 @@ class ProviderCreate(BaseModel):
     base_url: Optional[str] = None
     use_anthropic_api: bool = False
     extra_params: Optional[dict[str, Any]] = None
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=1_000_000)
     enabled: bool = True
 
 
@@ -65,6 +67,9 @@ class ProviderUpdate(BaseModel):
     base_url: Optional[str] = None
     use_anthropic_api: Optional[bool] = None
     extra_params: Optional[dict[str, Any]] = None
+    # Sent as null to go back to the gateway's default; left out to keep it. Told apart
+    # by `model_fields_set`, since both arrive as None.
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=1_000_000)
     enabled: Optional[bool] = None
 
 

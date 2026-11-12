@@ -133,6 +133,15 @@ class Settings(BaseSettings):
     # Oldest files go first past this many. The cache is best-effort, so the bound is loose.
     tts_cache_max_files: int = 2000
 
+    # ─── chat ────────────────────────────────────────────────────────────────
+    # The reply length a chat request asks for when neither the caller nor its provider
+    # names one (a provider's own max_tokens beats these). The Claude API reference's
+    # advice: generous, because hitting the cap truncates mid-thought and costs a retry,
+    # and higher for a stream, which has no HTTP timeout to stay under. A model's
+    # max_tokens (the vendor's limit) still caps whatever is chosen here.
+    chat_max_tokens: int = Field(default=16_000, ge=1, le=1_000_000)
+    chat_stream_max_tokens: int = Field(default=64_000, ge=1, le=1_000_000)
+
     # ─── administration ──────────────────────────────────────────────────────
     # Comma-separated user ids or usernames, matched exactly. The token carries no admin
     # claim, so this is how anybody becomes one. Admins register the providers everyone

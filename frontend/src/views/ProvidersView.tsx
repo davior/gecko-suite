@@ -209,6 +209,7 @@ function AddProvider() {
 function ProviderCard({ provider, models }: { provider: Provider; models: Model[] }) {
   const run = useRegistryStore((s) => s.run)
   const [newKey, setNewKey] = useState('')
+  const [maxTokens, setMaxTokens] = useState(provider.max_tokens?.toString() ?? '')
   const [test, setTest] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -317,6 +318,48 @@ function ProviderCard({ provider, models }: { provider: Provider; models: Model[
             Save key
           </button>
         </div>
+      )}
+      {provider.writable ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label
+            className="text-sm text-gray-700 dark:text-gray-300"
+            htmlFor={`max-tokens-${provider.id}`}
+          >
+            Max tokens
+          </label>
+          <input
+            id={`max-tokens-${provider.id}`}
+            className="input max-w-[10rem]"
+            type="number"
+            min={1}
+            placeholder="Suite default"
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={maxTokens === (provider.max_tokens?.toString() ?? '')}
+            onClick={async () => {
+              const value = maxTokens.trim() ? Number(maxTokens) : null
+              setError(
+                await run(() => providersApi.update(provider.id, { max_tokens: value }))
+              )
+            }}
+          >
+            Save
+          </button>
+          <span className="text-xs text-gray-500">
+            How long a reply may be when the app doesn’t say. Empty uses the suite’s
+            default; a model’s own limit still applies.
+          </span>
+        </div>
+      ) : (
+        provider.max_tokens && (
+          <p className="text-sm text-gray-500">
+            Max tokens: {provider.max_tokens.toLocaleString()}
+          </p>
+        )
       )}
       <ErrorNote message={error} />
       <ModelList provider={provider} models={models} />

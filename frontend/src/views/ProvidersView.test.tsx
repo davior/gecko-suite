@@ -55,6 +55,38 @@ describe('ProvidersView', () => {
     expect(await screen.findByText('$4 / $20 per M tokens')).toBeInTheDocument()
   })
 
+  it("sets a provider's max tokens", async () => {
+    const update = vi.spyOn(providersApi, 'update').mockResolvedValue(provider())
+    render(<ProvidersView />)
+    const mine = (await screen.findByText('Claude', { selector: 'h4' })).closest(
+      '.card'
+    ) as HTMLElement
+    const field = within(mine).getByLabelText('Max tokens')
+    await userEvent.type(field, '64000')
+    await userEvent.click(within(mine).getByRole('button', { name: 'Save' }))
+    expect(update).toHaveBeenCalledWith('p1', { max_tokens: 64000 })
+  })
+
+  it("clears a provider's max tokens back to the suite default", async () => {
+    vi.spyOn(providersApi, 'list').mockResolvedValue([provider({ max_tokens: 64000 })])
+    const update = vi.spyOn(providersApi, 'update').mockResolvedValue(provider())
+    render(<ProvidersView />)
+    const field = await screen.findByLabelText('Max tokens')
+    expect(field).toHaveValue(64000)
+    await userEvent.clear(field)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(update).toHaveBeenCalledWith('p1', { max_tokens: null })
+  })
+
+  it("shows a shared provider's max tokens without letting you change it", async () => {
+    vi.spyOn(providersApi, 'list').mockResolvedValue([
+      provider({ scope: 'instance', writable: false, max_tokens: 32000 }),
+    ])
+    render(<ProvidersView />)
+    expect(await screen.findByText('Max tokens: 32,000')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Max tokens')).toBeNull()
+  })
+
   it('adds a model by its id', async () => {
     const create = vi.spyOn(modelsApi, 'create').mockResolvedValue(model())
     render(<ProvidersView />)

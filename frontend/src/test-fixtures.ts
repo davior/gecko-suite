@@ -11,6 +11,7 @@ export function provider(overrides: Partial<Provider> = {}): Provider {
     base_url: null,
     use_anthropic_api: false,
     extra_params: null,
+    max_tokens: null,
     enabled: true,
     api_key_configured: true,
     writable: true,
