@@ -59,6 +59,9 @@ class Reply:
     output_tokens: int = 0
     cost: Optional[float] = None
     refusal_category: Optional[str] = None
+    # Vendor-run tools the call had: ["web_search"] when the model searched for itself
+    # instead of calling the app's web_search tool.
+    builtin_tools: list[str] = field(default_factory=list)
 
 
 class SuiteChat:
@@ -69,7 +72,8 @@ class SuiteChat:
     def __init__(self, client: SuiteClient, *, task: str = "chat.assistant", app: Optional[str] = None,
                  model_ref: Optional[str] = None, persona_id: Optional[str] = None,
                  params: Optional[dict] = None, subject_ref: Optional[str] = None,
-                 vendor: Optional[str] = None, model_name: Optional[str] = None):
+                 vendor: Optional[str] = None, model_name: Optional[str] = None,
+                 prefer_native_search: bool = True):
         if bool(vendor) != bool(model_name):
             raise ValueError("vendor and model_name go together")
         self.client = client
@@ -80,6 +84,11 @@ class SuiteChat:
         self.persona_id = persona_id
         self.params = params or {}
         self.subject_ref = subject_ref
+        # On by default so every app gets it by upgrading this package: a conversation
+        # that offers a tool named web_search asks the suite to use the model's own search
+        # instead where the model has one (Claude; DeepSeek on its Anthropic endpoint).
+        # Only the suite can tell, since only it knows which model a task lands on.
+        self.prefer_native_search = prefer_native_search
         self._resolved: Optional[dict] = None
 
     def resolve(self) -> Optional[dict]:
@@ -133,6 +142,8 @@ class SuiteChat:
             "params": self.params,
             **extra,
         }
+        if self.prefer_native_search and any(t.name == "web_search" for t in tools):
+            body["prefer_builtin"] = ["web_search"]
         if self.task:
             body["task"] = self.task
         elif self.model_ref:
@@ -185,6 +196,7 @@ class SuiteConversation:
             stop=data["stop"], model=data["model"], vendor=data["vendor"],
             input_tokens=data["usage"]["input_tokens"], output_tokens=data["usage"]["output_tokens"],
             cost=data.get("cost"), refusal_category=data.get("refusal_category"),
+            builtin_tools=list(data.get("builtin_tools") or []),
         )
 
     def answer(self, results: Sequence[ToolResult]) -> None:

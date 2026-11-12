@@ -132,6 +132,12 @@ class ChatRequest(BaseModel):
     # Tools the vendor runs itself. Only "web_search", and only on a model with the
     # web_search capability (Anthropic-protocol providers).
     builtin_tools: list[Literal["web_search"]] = Field(default_factory=list)
+    # Tools the caller offers itself but would rather the vendor ran. When the model the
+    # request resolves to can run one natively (`endpoints.searches_natively`), the
+    # caller's tool of that name is dropped and the vendor's is used; otherwise the
+    # request goes as sent. Only the suite can decide this, because only it knows which
+    # model a task, a persona or a by-name request lands on.
+    prefer_builtin: list[Literal["web_search"]] = Field(default_factory=list)
 
     max_tokens: Optional[int] = Field(default=None, ge=1, le=1_000_000)
     # Extra request parameters (e.g. {"output_config": {"effort": "low"}}), merged over
@@ -198,6 +204,8 @@ class ChatResult(BaseModel):
     provider: str
     vendor: str
     task: Optional[str] = None
+    # The vendor-run tools this call had, after `prefer_builtin` was applied.
+    builtin_tools: list[str] = Field(default_factory=list)
     cost: Optional[float] = None
     currency: Optional[str] = None
     cost_estimated: bool = True

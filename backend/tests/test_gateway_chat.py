@@ -164,7 +164,113 @@ def test_web_search_is_offered_as_a_builtin(auth_client, claude, vendors):
     vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
     _chat(auth_client, builtin_tools=["web_search"])
     assert json.loads(vendors.calls[-1].content)["tools"] == [
-        {"type": "web_search_20260209", "name": "web_search"}]
+        {"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
+
+
+# ─── an app's web_search tool, swapped for the model's own search ────────────
+
+APP_SEARCH = {"name": "web_search", "description": "Search the web.",
+              "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}}
+
+SEARCHED = [
+    {"type": "server_tool_use", "id": "srv_1", "name": "web_search", "input": {"query": "owl facts"}},
+    {"type": "web_search_tool_result", "tool_use_id": "srv_1", "content": [
+        {"type": "web_search_result", "title": "Owls", "url": "https://owls.example", "encrypted_content": "x"}]},
+]
+
+
+@pytest.fixture(name="deepseek")
+def deepseek_fixture(auth_client, catalog):
+    pid = _provider(auth_client, name="DeepSeek", vendor="deepseek", api_key="sk-ds", use_anthropic_api=True)
+    model = _model(auth_client, pid, model_id="deepseek-chat")
+    _route(auth_client, "chat.assistant", model)
+    return model
+
+
+def test_a_claude_model_searches_for_itself_instead_of_calling_the_apps_tool(auth_client, claude, vendors):
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
+    data = _chat(auth_client, tools=[TOOL, APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+    tools = json.loads(vendors.calls[-1].content)["tools"]
+    assert [t["name"] for t in tools] == ["search_assets", "web_search"]
+    assert tools[1] == {"type": "web_search_20260209", "name": "web_search", "max_uses": 5}
+    assert data["builtin_tools"] == ["web_search"]
+
+
+def test_deepseek_on_its_anthropic_endpoint_searches_for_itself(auth_client, deepseek, vendors):
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
+    data = _chat(auth_client, tools=[APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+    assert str(vendors.calls[-1].url) == "https://api.deepseek.com/anthropic/v1/messages"
+    assert json.loads(vendors.calls[-1].content)["tools"] == [
+        {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
+    assert data["builtin_tools"] == ["web_search"]
+
+
+def test_a_model_without_its_own_search_keeps_the_apps_tool(auth_client, catalog, vendors):
+    # DeepSeek's OpenAI-compatible endpoint has no server-side search.
+    pid = _provider(auth_client, name="DeepSeek", vendor="deepseek", api_key="sk-ds")
+    _route(auth_client, "chat.assistant", _model(auth_client, pid, model_id="deepseek-chat"))
+    vendors.respond = lambda r: httpx.Response(200, json={
+        "model": "deepseek-chat", "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}})
+    data = _chat(auth_client, tools=[APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+    assert [t["function"]["name"] for t in json.loads(vendors.calls[-1].content)["tools"]] == ["web_search"]
+    assert data["builtin_tools"] == []
+
+
+def test_a_stalled_deepseek_search_turn_is_finished_by_the_gateway(auth_client, deepseek, vendors, session):
+    from app.models.usage import UsageEvent
+
+    script = iter([
+        _anthropic_reply([{"type": "text", "text": "Let me look."}, *SEARCHED], stop="tool_use"),
+        _anthropic_reply([{"type": "text", "text": "Owls are birds."},
+                          {"type": "tool_use", "id": "tu_1", "name": "search_assets", "input": {"q": "owl"}}],
+                         stop="tool_use"),
+    ])
+    vendors.respond = lambda r: next(script)
+    data = _chat(auth_client, tools=[TOOL, APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+
+    assert len(vendors.calls) == 2
+    second = json.loads(vendors.calls[1].content)
+    folded, finish = second["messages"][-2:]
+    assert folded["role"] == "assistant"
+    assert "Let me look." in folded["content"][0]["text"]
+    assert "Owls — https://owls.example" in folded["content"][0]["text"]
+    assert finish["role"] == "user" and "search budget is spent" in finish["content"][0]["text"]
+    # The search that stalled is withheld; the app's own tools are not.
+    assert [t["name"] for t in second["tools"]] == ["search_assets"]
+
+    assert data["text"] == "Owls are birds." and data["stop"] == "tool_use"
+    assert [c["name"] for c in data["tool_calls"]] == ["search_assets"]
+    # The hits ride along in the message the app replays, so the next round has them.
+    assert "https://owls.example" in data["message"]["raw"]["message"]["content"][0]["text"]
+    assert data["usage"]["input_tokens"] == 20 and data["usage"]["output_tokens"] == 10
+    assert len(session.exec(__import__("sqlmodel").select(UsageEvent)).all()) == 1
+
+
+def test_a_provider_that_keeps_stalling_is_asked_only_twice_more(auth_client, deepseek, vendors):
+    vendors.respond = lambda r: _anthropic_reply([*SEARCHED], stop="tool_use")
+    data = _chat(auth_client, tools=[APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+    assert len(vendors.calls) == 3 and data["stop"] == "tool_use" and data["tool_calls"] == []
+
+
+def test_search_blocks_are_replayed_to_deepseek_as_text_and_to_claude_verbatim(auth_client, claude, catalog, vendors):
+    history = [
+        {"role": "user", "content": "Owls?"},
+        {"role": "assistant", "text": "", "raw": {"protocol": "anthropic", "message": {
+            "role": "assistant", "content": [*SEARCHED, {"type": "tool_use", "id": "tu_1", "name": "search_assets",
+                                                          "input": {}}]}}},
+        {"role": "tool", "results": [{"call_id": "tu_1", "content": "none"}]},
+    ]
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
+    _chat(auth_client, messages=history, tools=[TOOL])
+    assert json.loads(vendors.calls[-1].content)["messages"][1]["content"][:2] == SEARCHED
+
+    pid = _provider(auth_client, name="DeepSeek", vendor="deepseek", api_key="sk-ds", use_anthropic_api=True)
+    _route(auth_client, "chat.assistant", _model(auth_client, pid, model_id="deepseek-chat"))
+    _chat(auth_client, messages=history, tools=[TOOL])
+    replayed = json.loads(vendors.calls[-1].content)["messages"][1]["content"]
+    assert [b["type"] for b in replayed] == ["text", "tool_use"]
+    assert "https://owls.example" in replayed[0]["text"]
 
 
 # ─── OpenAI-compatible ───────────────────────────────────────────────────────
@@ -435,3 +541,32 @@ def test_the_usage_report_counts_unpriced_calls_separately(auth_client, claude, 
     assert auth_client.get("/api/v1/usage?scope=all").status_code == 403
     switch_user(ADMIN_ID)
     assert auth_client.get("/api/v1/usage?scope=all").json()["data"]["totals"]["events"] == 2
+
+
+def test_a_stalled_streamed_turn_is_finished_in_the_same_stream(auth_client, deepseek, vendors):
+    def streamed(content, stop):
+        events = [{"type": "message_start", "message": {"model": "deepseek-chat", "content": [],
+                                                        "usage": {"input_tokens": 10, "output_tokens": 0}}}]
+        for i, block in enumerate(content):
+            if block["type"] == "text":
+                events += [{"type": "content_block_start", "index": i, "content_block": {"type": "text", "text": ""}},
+                           {"type": "content_block_delta", "index": i,
+                            "delta": {"type": "text_delta", "text": block["text"]}}]
+            else:
+                events.append({"type": "content_block_start", "index": i, "content_block": block})
+            events.append({"type": "content_block_stop", "index": i})
+        events += [{"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 5}},
+                   {"type": "message_stop"}]
+        return httpx.Response(200, content=_sse_body(events), headers={"content-type": "text/event-stream"})
+
+    script = iter([streamed([{"type": "text", "text": "Looking."}, *SEARCHED], "tool_use"),
+                   streamed([{"type": "text", "text": "Owls are birds."}], "end_turn")])
+    vendors.respond = lambda r: next(script)
+    frames = _frames(_chat(auth_client, tools=[APP_SEARCH], prefer_builtin=["web_search"], stream=True).text)
+
+    assert len(vendors.calls) == 2
+    deltas = "".join(f[1]["text"] for f in frames if f[0] == "delta")
+    assert deltas == "Looking.\n\nOwls are birds."
+    final = frames[-1][1]
+    assert frames[-1][0] == "final" and final["text"] == "Owls are birds." and final["stop"] == "end"
+    assert final["usage"]["input_tokens"] == 20

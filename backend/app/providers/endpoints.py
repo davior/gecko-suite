@@ -39,6 +39,20 @@ def speaks_anthropic(provider: AIProvider) -> bool:
     return bool(provider.use_anthropic_api) and provider.vendor in ANTHROPIC_CAPABLE_VENDORS
 
 
+def searches_natively(provider, capabilities: set[str]) -> bool:
+    """Whether a model runs web search itself, as a server-side tool, on this provider.
+
+    A fact about the endpoint as much as the model, which is why it is here: DeepSeek's
+    models search on its Anthropic-compatible endpoint and not on its OpenAI one, so no
+    per-model capability row could say it. For Anthropic and other Messages gateways the
+    model's `web_search` capability decides (some Claude models have none). `provider` is
+    anything with `vendor` and `use_anthropic_api`: a row, or a gateway Target.
+    """
+    if not speaks_anthropic(provider):
+        return False
+    return provider.vendor == VENDOR_DEEPSEEK or "web_search" in capabilities
+
+
 def anthropic_base(provider: AIProvider) -> str:
     """Base URL for a provider's Messages endpoint.
 

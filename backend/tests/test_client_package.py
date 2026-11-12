@@ -161,6 +161,34 @@ def test_streaming_hands_over_text_as_it_arrives(suite, vendors):
     assert chunks == ["Hi ", "there"] and reply.text == "Hi there"
 
 
+def test_a_model_with_its_own_search_is_never_handed_the_apps_tool(suite, vendors):
+    from gecko_suite_client import WEB_SEARCH_TOOL
+
+    vendors.respond = lambda r: _reply([
+        {"type": "server_tool_use", "id": "s1", "name": "web_search", "input": {"query": "owls"}},
+        {"type": "web_search_tool_result", "tool_use_id": "s1", "content": []},
+        {"type": "text", "text": "Owls hoot."}])
+    searched = []
+    tool = ToolSpec(**WEB_SEARCH_TOOL)
+    conversation = SuiteChat(suite, app="gam").conversation(system=[], tools=[SEARCH, tool], prompt="Owls?")
+    outcome = run_agent(conversation, handlers={"web_search": lambda args: searched.append(args) or "hits"})
+
+    sent = json.loads(vendors.calls[0].content)
+    assert [t.get("type", "custom") for t in sent["tools"]] == ["custom", "web_search_20260209"]
+    assert outcome.reply == "Owls hoot." and searched == []
+    assert outcome.replies[0].builtin_tools == ["web_search"]
+
+
+def test_an_app_can_keep_its_own_search(suite, vendors):
+    from gecko_suite_client import WEB_SEARCH_TOOL
+
+    vendors.respond = lambda r: _reply([{"type": "text", "text": "ok"}])
+    chat = SuiteChat(suite, app="gam", prefer_native_search=False)
+    run_agent(chat.conversation(system=[], tools=[ToolSpec(**WEB_SEARCH_TOOL)], prompt="Owls?"))
+    assert json.loads(vendors.calls[0].content)["tools"][0]["name"] == "web_search"
+    assert "type" not in json.loads(vendors.calls[0].content)["tools"][0]
+
+
 def test_resolve_tells_an_app_whether_to_offer_ai(suite):
     chat = SuiteChat(suite, task="chat.assistant")
     assert chat.model == "claude-opus-5-5" and chat.supports_images

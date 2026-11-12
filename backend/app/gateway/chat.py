@@ -14,7 +14,7 @@ from app.auth import UserCtx
 from app.gateway import anthropic, openai
 from app.gateway.types import ChatRequest, ChatResult, Reply, Target, UpstreamError
 from app.models.ai import AIModel, AIProvider
-from app.providers.endpoints import speaks_anthropic
+from app.providers.endpoints import searches_natively, speaks_anthropic
 from app.providers.params import parse_extra_params
 from app.models.library import Persona
 from app.routers.library import visible_row
@@ -84,6 +84,7 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
     else:
         model, provider = _by_name(session, user, request.vendor, request.model)
 
+    _apply_preferences(model, provider, request)
     _check_capabilities(model, provider, request)
 
     api_key = crypto.decrypt(provider.api_key)
@@ -176,6 +177,20 @@ def _persona_model(session: Session, user: UserCtx, persona: Optional[Persona],
     return (model, provider) if usable(model, provider) else None
 
 
+def _apply_preferences(model: AIModel, provider: AIProvider, request: ChatRequest) -> None:
+    """Swap the caller's own tool for the vendor's where the model has one.
+
+    The apps all offer a `web_search` tool the suite runs through a search backend
+    (DuckDuckGo unless someone set up another), because most models cannot search. Claude
+    and DeepSeek's Anthropic endpoint can, and their own search reads whole pages and
+    cites them, so a model that has it uses it. The app's handler is simply never called.
+    """
+    if "web_search" in request.prefer_builtin and searches_natively(provider, capabilities_of(model)):
+        request.tools = [t for t in request.tools if t.name != "web_search"]
+        if "web_search" not in request.builtin_tools:
+            request.builtin_tools = [*request.builtin_tools, "web_search"]
+
+
 def _check_capabilities(model: AIModel, provider: AIProvider, request: ChatRequest) -> None:
     """Refuse what the model cannot do, here, in words, rather than as a vendor 400.
 
@@ -191,7 +206,7 @@ def _check_capabilities(model: AIModel, provider: AIProvider, request: ChatReque
     if request.tools and "tools" not in caps:
         raise bad_request("missing_capability", f"{name} cannot call tools")
     if request.builtin_tools:
-        if "web_search" not in caps or not speaks_anthropic(provider):
+        if not searches_natively(provider, caps):
             raise bad_request("missing_capability", f"{name} has no built-in web search")
 
 
@@ -206,7 +221,7 @@ class _ProviderView:
         self.base_url = target.base_url
 
 
-def _result(reply: Reply, target: Target, task: Optional[str], event) -> ChatResult:
+def _result(reply: Reply, target: Target, task: Optional[str], event, builtin_tools: list[str]) -> ChatResult:
     return ChatResult(
         text=reply.text,
         tool_calls=reply.tool_calls,
@@ -224,6 +239,7 @@ def _result(reply: Reply, target: Target, task: Optional[str], event) -> ChatRes
         provider=target.provider_name,
         vendor=target.vendor,
         task=task,
+        builtin_tools=list(builtin_tools),
         cost=event.cost,
         currency=event.currency,
         cost_estimated=event.cost_estimated,
@@ -252,7 +268,7 @@ def run(session: Session, user: UserCtx, request: ChatRequest) -> ChatResult:
         raise upstream_http_error(exc) from exc
     event = record_chat(session, user_id=user.id, app=request.app, task=task, target=target,
                         usage=reply.usage, served_model=reply.served_model, subject_ref=request.subject_ref)
-    return _result(reply, target, task, event)
+    return _result(reply, target, task, event, request.builtin_tools)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -282,7 +298,7 @@ def run_stream(session: Session, user: UserCtx, request: ChatRequest) -> Iterato
                     event = record_chat(session, user_id=user.id, app=request.app, task=task, target=target,
                                         usage=value.usage, served_model=value.served_model,
                                         subject_ref=request.subject_ref)
-                    result = _result(value, target, task, event)
+                    result = _result(value, target, task, event, request.builtin_tools)
                     for call in result.tool_calls:
                         yield _sse("tool_call", call.model_dump())
                     yield _sse("final", result.model_dump())
