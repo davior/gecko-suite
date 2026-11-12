@@ -284,6 +284,40 @@ def gpt_fixture(auth_client, catalog):
     return model
 
 
+def test_a_providers_max_tokens_is_the_default_the_model_still_caps_it(auth_client, catalog, vendors):
+    provider = _provider(auth_client, max_tokens=64_000)
+    _route(auth_client, "chat.assistant", _model(auth_client, provider, model_id="claude-opus-5-5"))
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "Hi"}])
+
+    def sent_for(**fields):
+        assert _chat(auth_client, **fields).status_code == 200
+        return json.loads(vendors.calls[-1].content)["max_tokens"]
+
+    assert sent_for() == 64_000
+    assert sent_for(max_tokens=500) == 500  # the caller's own figure still wins
+
+    # Above the model's limit (the catalogue's 128k for Opus), the limit is what is sent.
+    res = auth_client.patch(f"/api/v1/providers/{provider}", json={"max_tokens": 200_000})
+    assert res.json()["data"]["max_tokens"] == 200_000
+    assert sent_for() == 128_000
+
+    # Left out of a PATCH it is kept; sent as null it goes back to the gateway's default.
+    auth_client.patch(f"/api/v1/providers/{provider}", json={"name": "Renamed"})
+    assert sent_for() == 128_000
+    res = auth_client.patch(f"/api/v1/providers/{provider}", json={"max_tokens": None})
+    assert res.json()["data"]["max_tokens"] is None
+    assert sent_for() == 16_000
+
+
+def test_the_env_default_applies_where_no_provider_says(auth_client, claude, vendors, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "chat_max_tokens", 100_000)
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "Hi"}])
+    assert _chat(auth_client).status_code == 200
+    assert json.loads(vendors.calls[-1].content)["max_tokens"] == 100_000
+
+
 def test_an_openai_call_with_tools(auth_client, gpt, vendors):
     vendors.respond = lambda r: httpx.Response(200, json={
         "model": "gpt-4.1-mini",

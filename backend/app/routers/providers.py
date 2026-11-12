@@ -73,6 +73,7 @@ def _serialise(session: Session, provider: AIProvider, writable: bool) -> Provid
         base_url=provider.base_url,
         use_anthropic_api=provider.use_anthropic_api,
         extra_params=load_json(provider.extra_params, {}) or None,
+        max_tokens=provider.max_tokens,
         enabled=provider.enabled,
         api_key_configured=bool(provider.api_key),
         writable=writable,
@@ -149,6 +150,7 @@ def create_provider(
         base_url=payload.base_url or None,
         use_anthropic_api=payload.use_anthropic_api,
         extra_params=json.dumps(payload.extra_params, sort_keys=True) if payload.extra_params else None,
+        max_tokens=payload.max_tokens,
         enabled=payload.enabled,
     )
     session.add(provider)
@@ -180,6 +182,8 @@ def update_provider(
         provider.extra_params = (
             json.dumps(payload.extra_params, sort_keys=True) if payload.extra_params else None
         )
+    if "max_tokens" in payload.model_fields_set:
+        provider.max_tokens = payload.max_tokens
     if payload.api_key is not None:
         provider.api_key = crypto.encrypt(payload.api_key)
 

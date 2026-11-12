@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app import crypto
+from app.config import settings
 from app.auth import UserCtx
 from app.gateway import anthropic, openai
 from app.gateway.types import ChatRequest, ChatResult, Reply, Target, UpstreamError
@@ -24,12 +25,6 @@ from app.usage.ledger import record_chat
 from app.vocab import KEYLESS_VENDORS, LLM_VENDORS, TASK_REQUIRES, TASKS
 
 logger = logging.getLogger(__name__)
-
-# What a request gets when neither it nor the model says. The Claude API reference's
-# advice: generous, because hitting the cap truncates mid-thought and costs a retry, and
-# higher for a stream, which has no HTTP timeout to stay under.
-DEFAULT_MAX_TOKENS = 16_000
-DEFAULT_STREAM_MAX_TOKENS = 64_000
 
 
 def _not_configured(task: str) -> HTTPException:
@@ -121,8 +116,12 @@ def prepare(session: Session, user: UserCtx, request: ChatRequest) -> tuple[Targ
         capabilities=capabilities_of(model),
         max_tokens=model.max_tokens,
     )
-    default = DEFAULT_STREAM_MAX_TOKENS if request.stream else DEFAULT_MAX_TOKENS
-    asked = request.max_tokens or default
+    # The caller's figure, else the provider's (what the person chose for everything
+    # through it), else CHAT_MAX_TOKENS from .env. The model's max_tokens is the vendor's
+    # output limit, so it caps every one of them rather than taking a turn as the
+    # default: a catalogue row's 128k would otherwise be asked for on every call to it.
+    default = settings.chat_stream_max_tokens if request.stream else settings.chat_max_tokens
+    asked = request.max_tokens or provider.max_tokens or default
     max_tokens = min(asked, model.max_tokens) if model.max_tokens else asked
     return target, request.task, max_tokens, params
 

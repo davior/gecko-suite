@@ -74,6 +74,8 @@ export interface Provider {
   base_url: string | null
   use_anthropic_api: boolean
   extra_params: Record<string, unknown> | null
+  /** Reply length asked for when the app names none; null is the suite's default. */
+  max_tokens: number | null
   enabled: boolean
   /** The key itself never leaves the suite. */
   api_key_configured: boolean
@@ -96,6 +98,8 @@ export type ProviderUpdate = Partial<{
   api_key: string
   base_url: string | null
   use_anthropic_api: boolean
+  /** null goes back to the suite's default. */
+  max_tokens: number | null
   enabled: boolean
 }>
 

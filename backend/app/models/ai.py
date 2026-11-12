@@ -50,6 +50,10 @@ class AIProvider(SQLModel, table=True):
     # JSON-as-TEXT: extra request parameters merged into every request through this
     # provider, after app.providers.params strips the structural keys.
     extra_params: Optional[str] = None
+    # The reply length a request through this provider asks for when the caller names
+    # none. Null means the gateway's own default. The person's choice, not the vendor's
+    # limit: that is AIModel.max_tokens, which still caps this.
+    max_tokens: Optional[int] = None
     enabled: bool = Field(default=True)
 
     created_at: datetime = Field(default_factory=utcnow)
