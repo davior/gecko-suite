@@ -193,11 +193,12 @@ def call(target: Target, request: ChatRequest, *, max_tokens: int, params: dict)
 
 
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
-    """Yield ("delta", text) as text arrives, then ("final", Reply)."""
+    """Yield ("delta", text) as text arrives, ("progress", None) for other output, then
+    ("final", Reply)."""
     body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
     url, _ = _url_and_timeout(target)
     for kind, value in completion_events(url, headers, body, label=target.provider_name):
-        if kind == "delta":
+        if kind in ("delta", "progress"):
             yield kind, value
         else:
             value["model"] = value.get("model") or target.model_id
@@ -206,7 +207,8 @@ def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dic
 
 def completion_events(url: str, headers: dict, body: dict, *, label: str,
                       read_timeout: float = STREAM_READ_TIMEOUT) -> Iterator[tuple[str, Any]]:
-    """Stream a chat completion: ("delta", text) as text arrives, then ("payload", dict).
+    """Stream a chat completion: ("delta", text) as text arrives, ("progress", None) for
+    other output, then ("payload", dict).
 
     Tool calls arrive as fragments keyed by `index`: the first carries the id and name,
     later ones append to `arguments`. They are joined here into the blocking shape, so
@@ -240,6 +242,10 @@ def completion_events(url: str, headers: dict, body: dict, *, label: str,
                 if piece:
                     text += piece
                     yield "delta", piece
+                elif delta.get("tool_calls") or delta.get("reasoning_content"):
+                    # Not text, but output all the same (DeepSeek streams its thinking
+                    # as reasoning_content): see message_events in anthropic.py.
+                    yield "progress", None
                 for fragment in delta.get("tool_calls") or []:
                     slot = calls.setdefault(fragment.get("index", 0),
                                             {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})

@@ -407,3 +407,23 @@ def test_a_request_still_names_exactly_one_target(suite, auth_client, target):
 def test_the_package_refuses_half_a_name():
     with pytest.raises(ValueError):
         SuiteChat(SuiteClient(token="t", base_url="http://x"), vendor="anthropic")
+
+
+def test_the_client_reads_a_stream_with_keepalives(suite, vendors, monkeypatch):
+    """The keepalives are SSE comments: the client must skip them, not fail on them."""
+    from app.gateway import chat as gateway_chat
+    from tests.test_gateway_chat import _sse_body
+
+    monkeypatch.setattr(gateway_chat, "KEEPALIVE_SECONDS", 0)
+    vendors.respond = lambda r: httpx.Response(200, content=_sse_body([
+        {"type": "message_start", "message": {"content": [], "usage": {}}},
+        {"type": "content_block_start", "index": 0,
+         "content_block": {"type": "tool_use", "id": "tu_1", "name": "search_assets", "input": {}}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"q": "cat"}'}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+        {"type": "message_stop"},
+    ]))
+    reply = SuiteChat(suite, app="gam").conversation(
+        system=[], tools=[SEARCH], prompt="Find a cat").ask(on_delta=lambda text: None)
+    assert reply.tool_calls[0].arguments == {"q": "cat"}

@@ -367,6 +367,9 @@ def stream(session: Session, user: UserCtx, protocol: str, request: Any) -> Iter
             for kind, value in events(found, request):
                 if kind == "delta":
                     yield _sse("delta", {"text": value})
+                elif kind == "progress":
+                    # Notes reads only delta and final, so nothing is sent for it.
+                    continue
                 else:  # "message" (Anthropic) or "final"
                     _record(session, user, request, found, protocol, value)
                     yield _sse("final", value)
