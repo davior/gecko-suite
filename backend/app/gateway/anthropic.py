@@ -62,15 +62,167 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # The web search tool version differs by endpoint: Anthropic's current models take the
 # dynamic-filtering variant; DeepSeek's compatible endpoint and unknown gateways get the
 # basic one, which is what Notes has always sent them.
-WEB_SEARCH_CURRENT = {"type": "web_search_20260209", "name": "web_search"}
-WEB_SEARCH_BASIC = {"type": "web_search_20250305", "name": "web_search"}
+# `max_uses` is per call. Five is what Notes always gave its native search, and what the
+# apps cap their own web_search tool at in a turn.
+WEB_SEARCH_MAX_USES = 5
+WEB_SEARCH_CURRENT = {"type": "web_search_20260209", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}
+WEB_SEARCH_BASIC = {"type": "web_search_20250305", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}
+
+_SEARCH_BLOCKS = ("server_tool_use", "web_search_tool_result")
+
+# ─── a turn DeepSeek leaves open ─────────────────────────────────────────────
+#
+# Ported from Notes' `assistant/continuation.py`, where the reasoning is written out in
+# full. Anthropic's own search completes inside one call. DeepSeek's Anthropic endpoint
+# does not: once the model has spent `max_uses` its reply stops with
+# `stop_reason: "tool_use"` and every outstanding call is a `server_tool_use` DeepSeek
+# already answered. Nothing is left for a caller to run, so an app's agent loop would end
+# the turn on the model's between-search commentary ("I'll write the note now…"). The
+# gateway finishes it instead: what the model has so far goes back as plain text, with
+# the hits, and the model is asked to carry on without the search tool.
+
+# A provider that stalls twice in a row will stall forever, and each attempt is a full
+# round trip on an already slow turn.
+MAX_STALL_CONTINUATIONS = 2
+# It says the budget is spent, because a model whose last searches failed with
+# `max_uses_exceeded` otherwise just tries to search again. The caller's own tools stay
+# offered (Notes' planner records its changes through them), so it may still call those.
+FINISH_TURN_REQUEST = (
+    "Your web searching for this turn is over: the search budget is spent and no further "
+    "searches are available. Do not describe what you are about to do and do not apologise. "
+    "Carry on with the request above now, using the other tools you were given if it needs them."
+)
+# Enough hits per search to cite from, few enough that several do not crowd the context.
+REPLAYED_HITS_PER_SEARCH = 5
 
 
 def _image_block(part: ImagePart) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": part.media_type, "data": part.data}}
 
 
-def _content_blocks(message: ChatMessage) -> list[dict]:
+def search_summary(blocks: list[dict]) -> str:
+    """The searches in a run of content blocks, as text: each query and its first hits.
+
+    The query is on a `server_tool_use` block, the hits on the `web_search_tool_result`
+    that follows it.
+    """
+    searches: list[str] = []
+    query = ""
+    for block in blocks:
+        if block.get("type") == "server_tool_use":
+            asked = block.get("input").get("query") if isinstance(block.get("input"), dict) else None
+            query = asked if isinstance(asked, str) else ""
+        elif block.get("type") == "web_search_tool_result":
+            hits = block.get("content") if isinstance(block.get("content"), list) else []
+            lines = []
+            for hit in hits:
+                url = hit.get("url") if isinstance(hit, dict) else None
+                if not isinstance(url, str) or not url:
+                    continue
+                title = hit.get("title")
+                lines.append(f"- {title if isinstance(title, str) and title else url} — {url}")
+                if len(lines) == REPLAYED_HITS_PER_SEARCH:
+                    break
+            if lines:
+                searches.append("\n".join([f"Search “{query}”:", *lines]))
+    if not searches:
+        return ""
+    return "\n\n".join(["Web search results gathered this turn:", *searches])
+
+
+def fold_searches(content: list[dict]) -> list[dict]:
+    """Assistant content with each run of search blocks replaced by a text summary.
+
+    For a compatible gateway only. Replaying `server_tool_use` / `web_search_tool_result`
+    pairs verbatim is exactly what a compatible-but-not-identical endpoint validates
+    differently, and Notes never sent them back to DeepSeek; a summary keeps what the
+    model learned without the risk. Anthropic gets them verbatim, as its API expects.
+    """
+    out: list[dict] = []
+    run: list[dict] = []
+
+    def flush() -> None:
+        summary = search_summary(run)
+        if summary:
+            out.append({"type": "text", "text": summary})
+        run.clear()
+
+    for block in content:
+        if isinstance(block, dict) and block.get("type") in _SEARCH_BLOCKS:
+            run.append(block)
+            continue
+        flush()
+        out.append(block)
+    flush()
+    return out
+
+
+def is_stalled(payload: Any) -> bool:
+    """A reply that stopped on tool use with nothing left for the caller to run."""
+    if not isinstance(payload, dict) or payload.get("stop_reason") != "tool_use":
+        return False
+    blocks = [b for b in payload.get("content") or [] if isinstance(b, dict)]
+    return (any(b.get("type") == "server_tool_use" for b in blocks)
+            and not any(b.get("type") == "tool_use" for b in blocks))
+
+
+def _stalled_as_text(payload: dict) -> str:
+    blocks = [b for b in payload.get("content") or [] if isinstance(b, dict)]
+    parts = [t for t in ((b.get("text") or "").strip() for b in blocks if b.get("type") == "text") if t]
+    summary = search_summary(blocks)
+    if summary:
+        parts.append(summary)
+    # An assistant turn may not be empty, and a model that searched without writing a
+    # word leaves nothing else to send back.
+    return "\n\n".join(parts) or "(searching)"
+
+
+def continuation(body: dict, payload: dict) -> dict:
+    """The follow-up request that finishes a stalled turn: the original body untouched,
+    so its cache breakpoints still hit, plus two messages, without the search tool."""
+    nxt = dict(body)
+    nxt["messages"] = [
+        *body["messages"],
+        {"role": "assistant", "content": [{"type": "text", "text": _stalled_as_text(payload)}]},
+        {"role": "user", "content": [{"type": "text", "text": FINISH_TURN_REQUEST}]},
+    ]
+    tools = [t for t in body.get("tools") or [] if not str(t.get("type", "")).startswith("web_search")]
+    if tools:
+        nxt["tools"] = tools
+    else:
+        nxt.pop("tools", None)
+    return nxt
+
+
+def _with_gathered(payload: dict, stalled: list[dict]) -> dict:
+    """The final reply, carrying what the stalled rounds found, for the caller's history.
+
+    The caller replays only this message, so without it the next round would have lost
+    the hits. Placed after any leading thinking blocks, which must come first.
+    """
+    summary = "\n\n".join(s for s in (search_summary(
+        [b for b in p.get("content") or [] if isinstance(b, dict)]) for p in stalled) if s)
+    if not summary:
+        return payload
+    content = list(payload.get("content") or [])
+    at = 0
+    while at < len(content) and isinstance(content[at], dict) and content[at].get("type") in (
+            "thinking", "redacted_thinking"):
+        at += 1
+    content.insert(at, {"type": "text", "text": summary})
+    return {**payload, "content": content}
+
+
+def _add_usage(total: Usage, more: Optional[Usage]) -> Usage:
+    if more is None:
+        return total
+    return Usage(input_tokens=total.input_tokens + more.input_tokens,
+                 output_tokens=total.output_tokens + more.output_tokens,
+                 cache_read_tokens=total.cache_read_tokens + more.cache_read_tokens,
+                 cache_write_tokens=total.cache_write_tokens + more.cache_write_tokens)
+
+
+def _content_blocks(message: ChatMessage, *, fold: bool = False) -> list[dict]:
     """A message as a list of Messages-API content blocks."""
     if message.role == "user":
         if isinstance(message.content, str):
@@ -90,7 +242,7 @@ def _content_blocks(message: ChatMessage) -> list[dict]:
         content = (message.raw.message or {}).get("content") if isinstance(message.raw.message, dict) else None
         if isinstance(content, list):
             # Verbatim: thinking and fallback blocks included, nothing re-serialised.
-            return content
+            return fold_searches(content) if fold else content
     blocks: list[dict] = []
     if message.text:
         blocks.append({"type": "text", "text": message.text})
@@ -99,7 +251,7 @@ def _content_blocks(message: ChatMessage) -> list[dict]:
     return blocks
 
 
-def build_messages(messages: list[ChatMessage]) -> list[dict]:
+def build_messages(messages: list[ChatMessage], *, fold_searches: bool = False) -> list[dict]:
     """The conversation in Messages-API form.
 
     Consecutive messages with the same role are merged. Anthropic combines them itself,
@@ -109,7 +261,7 @@ def build_messages(messages: list[ChatMessage]) -> list[dict]:
     out: list[dict] = []
     for message in messages:
         role = "assistant" if message.role == "assistant" else "user"
-        blocks = _content_blocks(message)
+        blocks = _content_blocks(message, fold=fold_searches)
         if not blocks:
             continue
         if out and out[-1]["role"] == role:
@@ -124,7 +276,7 @@ def build_body(target: Target, request: ChatRequest, *, stream: bool, max_tokens
     body: dict[str, Any] = {
         "model": target.model_id,
         "max_tokens": max_tokens,
-        "messages": build_messages(request.messages),
+        "messages": build_messages(request.messages, fold_searches=target.vendor != VENDOR_ANTHROPIC),
     }
     # Each system block is a cache breakpoint. Three at most: Anthropic allows four, and
     # the top-level one below takes the last.
@@ -240,17 +392,47 @@ def parse(payload: Any, target: Target) -> Reply:
     )
 
 
-def call(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Reply:
-    body, headers = build_body(target, request, stream=False, max_tokens=max_tokens, params=params)
+def _post(target: Target, body: dict, headers: dict) -> dict:
     response = upstream.post_json(url_for(target), headers=headers, body=body,
                                   timeout=REQUEST_TIMEOUT, label=target.provider_name)
     if response.status_code >= 400:
         raise upstream.http_error(response, target.provider_name)
     try:
-        payload = response.json()
+        return response.json()
     except ValueError as exc:
         raise UpstreamError(f"{target.provider_name} returned a response that was not JSON") from exc
-    return parse(payload, target)
+
+
+def _finish(payload: Any, target: Target, stalled: list[dict], spent: Usage) -> Reply:
+    """Parse the last reply, counting the stalled rounds' tokens and keeping their hits."""
+    reply = parse(payload, target)
+    reply.usage = _add_usage(spent, reply.usage)
+    if stalled:
+        # Into the history only, after parsing, so the text the app shows is the answer.
+        reply.raw = RawMessage(protocol=PROTOCOL, message=_with_gathered(reply.raw.message, stalled))
+    return reply
+
+
+def _continued(exc: UpstreamError, spent: Usage) -> UpstreamError:
+    # The stalled rounds were billed even though the turn then failed.
+    exc.usage = _add_usage(spent, exc.usage)
+    return exc
+
+
+def call(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Reply:
+    body, headers = build_body(target, request, stream=False, max_tokens=max_tokens, params=params)
+    payload = _post(target, body, headers)
+    stalled: list[dict] = []
+    spent = Usage()
+    while is_stalled(payload) and len(stalled) < MAX_STALL_CONTINUATIONS:
+        stalled.append(payload)
+        spent = _add_usage(spent, parse_usage(payload))
+        body = continuation(body, payload)
+        try:
+            payload = _post(target, body, headers)
+        except UpstreamError as exc:
+            raise _continued(exc, spent) from exc
+    return _finish(payload, target, stalled, spent)
 
 
 def _finish_tool_input(block: dict, raw: Optional[str]) -> None:
@@ -271,11 +453,26 @@ def _finish_tool_input(block: dict, raw: Optional[str]) -> None:
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
     """Yield ("delta", text) as text arrives, then ("final", Reply)."""
     body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
-    for kind, value in message_events(url_for(target), headers, body, label=target.provider_name):
-        if kind == "delta":
-            yield kind, value
-        else:
-            yield "final", parse(value, target)
+    stalled: list[dict] = []
+    spent = Usage()
+    while True:
+        message: Any = None
+        try:
+            for kind, value in message_events(url_for(target), headers, body, label=target.provider_name):
+                if kind == "delta":
+                    yield kind, value
+                else:
+                    message = value
+        except UpstreamError as exc:
+            raise _continued(exc, spent) from exc
+        if not is_stalled(message) or len(stalled) >= MAX_STALL_CONTINUATIONS:
+            yield "final", _finish(message, target, stalled, spent)
+            return
+        stalled.append(message)
+        spent = _add_usage(spent, parse_usage(message))
+        body = continuation(body, message)
+        # The commentary already streamed stays on screen; the answer follows it.
+        yield "delta", "\n\n"
 
 
 def message_events(url: str, headers: dict, body: dict, *, label: str,
