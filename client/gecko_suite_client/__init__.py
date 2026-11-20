@@ -6,10 +6,10 @@ from gecko_suite_client.client import SuiteClient, SuiteError, SuiteNotConfigure
 from gecko_suite_client.embed import SuiteEmbedder
 from gecko_suite_client.media import MediaJob, SuiteMedia
 from gecko_suite_client.speech import Spoken, SuiteSpeech
-from gecko_suite_client.search import WEB_SEARCH_TOOL, format_results, web_search
+from gecko_suite_client.search import WEB_SEARCH_TOOL, format_results, image_search, web_search
 
 __all__ = [
     "Image", "MediaJob", "Outcome", "Reply", "Stopped", "SuiteChat", "SuiteClient", "SuiteConversation",
     "SuiteEmbedder", "SuiteError", "SuiteMedia", "SuiteSpeech", "Spoken", "SuiteNotConfigured", "SuiteUnavailable", "ToolCall", "ToolResult",
-    "ToolSpec", "WEB_SEARCH_TOOL", "format_results", "run_agent", "web_search",
+    "ToolSpec", "WEB_SEARCH_TOOL", "format_results", "image_search", "run_agent", "web_search",
 ]

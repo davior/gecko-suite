@@ -271,3 +271,168 @@ def search(*, kind: str, query: str, api_key: str = "", base_url: str = "",
         raise SearchError("search_timeout", f"{spec.label} did not respond within {SEARCH_TIMEOUT:.0f}s.", 504)
     except httpx.RequestError as exc:
         raise SearchError("search_unreachable", f"Could not reach {spec.label}: {type(exc).__name__}")
+
+
+# ─── image search ────────────────────────────────────────────────────────────
+#
+# Pictures for an app to offer a person to choose from (GVC's backgrounds and overlays).
+# The same backend a person set up for text search answers, so there is one place to
+# configure search, not two. What comes back is a list of candidates and nothing more:
+# the suite never downloads a picture, since it keeps no app content. The app that wants
+# one has GAM fetch it.
+
+DEFAULT_IMAGES = 12
+MAX_IMAGES = 30
+MAX_IMAGE_DESCRIPTION_CHARS = 300
+
+
+@dataclass
+class ImageResult:
+    image_url: str
+    # The page the picture is on, which is what a credit should name. Tavily does not say
+    # which page an image came from, so it can be missing: never filled with a guess.
+    page_url: Optional[str] = None
+    title: str = ""
+    thumbnail_url: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    description: str = ""
+
+
+def _http_url(value: Any) -> Optional[str]:
+    value = _clean(value)
+    return value if value.startswith(("http://", "https://")) else None
+
+
+def _int(value: Any) -> Optional[int]:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _image(image_url: Any, *, page_url: Any = None, title: Any = "", thumbnail_url: Any = None,
+           width: Any = None, height: Any = None, description: Any = "") -> Optional[ImageResult]:
+    url = _http_url(image_url)
+    if url is None:
+        return None
+    return ImageResult(image_url=url, page_url=_http_url(page_url), title=_truncate(_clean(title), 200),
+                       thumbnail_url=_http_url(thumbnail_url), width=_int(width), height=_int(height),
+                       description=_truncate(_clean(description), MAX_IMAGE_DESCRIPTION_CHARS))
+
+
+def _dedupe(images: list[Optional[ImageResult]], count: int) -> list[ImageResult]:
+    # Engines list one picture under several pages; one candidate per file is enough.
+    seen: set[str] = set()
+    kept: list[ImageResult] = []
+    for image in images:
+        if image is None or image.image_url in seen:
+            continue
+        seen.add(image.image_url)
+        kept.append(image)
+        if len(kept) >= count:
+            break
+    return kept
+
+
+def _tavily_images(http: httpx.Client, query: str, count: int, api_key: str) -> list[ImageResult]:
+    # Tavily has no image endpoint: its search returns pictures beside the pages. Asking
+    # for descriptions is what makes them choosable by a model that cannot see them.
+    response = http.post(
+        "https://api.tavily.com/search",
+        json={"query": query, "max_results": 5, "search_depth": "basic", "include_answer": False,
+              "include_raw_content": False, "include_images": True, "include_image_descriptions": True},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    if not response.is_success:
+        raise _http_error("Tavily", response.status_code)
+    images = []
+    for item in _json_body(response, "Tavily").get("images") or []:
+        if isinstance(item, str):  # the shape without descriptions
+            images.append(_image(item))
+        elif isinstance(item, dict):
+            images.append(_image(item.get("url"), description=item.get("description")))
+    return _dedupe(images, count)
+
+
+def _brave_images(http: httpx.Client, query: str, count: int, api_key: str) -> list[ImageResult]:
+    response = http.get(
+        "https://api.search.brave.com/res/v1/images/search",
+        # Brave's image search takes only "off" or "strict".
+        params={"q": query, "count": count, "safesearch": "strict"},
+        headers={"X-Subscription-Token": api_key, "Accept": "application/json"},
+    )
+    if not response.is_success:
+        raise _http_error("The Brave Search API", response.status_code)
+    images = []
+    for item in _json_body(response, "Brave Search").get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        properties = item.get("properties") or {}
+        images.append(_image(properties.get("url"), page_url=item.get("url"), title=item.get("title"),
+                             thumbnail_url=(item.get("thumbnail") or {}).get("src"),
+                             width=properties.get("width"), height=properties.get("height")))
+    return _dedupe(images, count)
+
+
+def _searxng_images(http: httpx.Client, query: str, count: int, base_url: str) -> list[ImageResult]:
+    response = http.get(
+        urljoin(base_url.rstrip("/") + "/", "search"),
+        params={"q": query, "format": "json", "safesearch": 1, "categories": "images"},
+        headers={"Accept": "application/json", "User-Agent": _SCRAPER_UA},
+    )
+    if not response.is_success:
+        if response.status_code == 403:
+            raise SearchError("search_forbidden", "The SearXNG instance refused the request. Its "
+                              "settings.yml must list `json` under `search.formats`.")
+        raise _http_error("The SearXNG instance", response.status_code)
+    images = []
+    for item in _json_body(response, "SearXNG").get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        width = height = None
+        # SearXNG reports size as text, "1920 x 1080" or "1920×1080", when it knows it.
+        size = _clean(item.get("resolution")).replace("×", "x").split("x")
+        if len(size) == 2:
+            width, height = size[0].strip(), size[1].strip()
+        images.append(_image(item.get("img_src"), page_url=item.get("url"), title=item.get("title"),
+                             thumbnail_url=item.get("thumbnail_src"), width=width, height=height,
+                             description=item.get("content")))
+    return _dedupe(images, count)
+
+
+def search_images(*, kind: str, query: str, api_key: str = "", base_url: str = "",
+                  count: Optional[int] = None) -> list[ImageResult]:
+    """Find pictures with one backend. An empty list is a real answer."""
+    query = (query or "").strip()
+    if not query:
+        raise SearchError("empty_query", "The search query was empty.", 400)
+    spec = KINDS.get(kind)
+    if spec is None:
+        raise SearchError("unknown_provider", f"Unknown web search backend: {kind}", 400)
+    if kind == "duckduckgo":
+        # Its image results come from a JavaScript endpoint behind a per-query token
+        # scraped out of a page, which is a scraper's scraper: it would break unannounced
+        # and look like "no pictures" when it did. Saying so is more useful.
+        raise SearchError("images_unsupported", "DuckDuckGo, the search used when none is set up, "
+                          "can't find pictures. Set up Tavily, Brave or SearXNG in Gecko Suite's "
+                          "search settings.", 409)
+    if spec.needs_api_key and not api_key:
+        raise SearchError("search_unconfigured", f"{spec.label} needs an API key.", 409)
+    if spec.needs_base_url and not base_url:
+        raise SearchError("search_unconfigured", f"{spec.label} needs an instance URL.", 409)
+
+    count = max(1, min(int(count or DEFAULT_IMAGES), MAX_IMAGES))
+    timeout = httpx.Timeout(SEARCH_TIMEOUT, connect=10.0, write=10.0, pool=10.0)
+    try:
+        with outbound.client(timeout=timeout) as http:
+            if kind == "brave":
+                return _brave_images(http, query, count, api_key)
+            if kind == "tavily":
+                return _tavily_images(http, query, count, api_key)
+            return _searxng_images(http, query, count, base_url)
+    except httpx.TimeoutException:
+        raise SearchError("search_timeout", f"{spec.label} did not respond within {SEARCH_TIMEOUT:.0f}s.", 504)
+    except httpx.RequestError as exc:
+        raise SearchError("search_unreachable", f"Could not reach {spec.label}: {type(exc).__name__}")

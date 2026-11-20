@@ -17,7 +17,7 @@ from app.models.usage import UsageEvent
 from app.routers.library import visible_query, visible_row
 from app.safe_url import require_safe_external_url
 from app.schemas import DataResponse, ListResponse
-from app.search.web import KINDS, SearchError, search
+from app.search.web import KINDS, MAX_IMAGES, SearchError, search, search_images
 from app.services import access
 
 router = APIRouter()
@@ -152,6 +152,22 @@ class WebSearchResult(BaseModel):
     results: list[WebSearchHit]
 
 
+def _backend(session: Session, user: UserCtx) -> Optional[WebSearchProvider]:
+    """The caller's own enabled backend, else the shared one; None means DuckDuckGo."""
+    return next((r for r in session.exec(visible_query_providers(user.id)).all() if r.enabled), None)
+
+
+def _record(session: Session, user: UserCtx, app: str, task: str, row: Optional[WebSearchProvider],
+            kind: str, name: str, subject_ref: Optional[str]) -> None:
+    session.add(UsageEvent(
+        user_id=user.id, app=app, task=task, kind="search", provider_id=row.id if row else None,
+        provider_name=name, vendor=kind, units=1, unit_type="queries",
+        cost=0.0 if kind in FREE_KINDS else None, currency="USD" if kind in FREE_KINDS else None,
+        subject_ref=subject_ref,
+    ))
+    session.commit()
+
+
 @router.post("/web", response_model=DataResponse[WebSearchResult])
 def web_search(payload: WebSearchRequest, user: CurrentUser, session: Session = Depends(get_session)):
     """Search with the caller's own backend, else the shared one, else DuckDuckGo.
@@ -160,7 +176,7 @@ def web_search(payload: WebSearchRequest, user: CurrentUser, session: Session = 
     anybody signs up for anything, which is Notes' default and the reason for it.
     """
     app = access.app_for(user, payload.app)
-    row = next((r for r in session.exec(visible_query_providers(user.id)).all() if r.enabled), None)
+    row = _backend(session, user)
     kind = row.kind if row else "duckduckgo"
     name = row.name if row else "DuckDuckGo"
     try:
@@ -169,13 +185,49 @@ def web_search(payload: WebSearchRequest, user: CurrentUser, session: Session = 
     except SearchError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message})
 
-    session.add(UsageEvent(
-        user_id=user.id, app=app, task="search.web", kind="search", provider_id=row.id if row else None,
-        provider_name=name, vendor=kind, units=1, unit_type="queries",
-        cost=0.0 if kind in FREE_KINDS else None, currency="USD" if kind in FREE_KINDS else None,
-        subject_ref=payload.subject_ref,
-    ))
-    session.commit()
+    _record(session, user, app, "search.web", row, kind, name, payload.subject_ref)
     return DataResponse(data=WebSearchResult(provider=name, kind=kind,
                                              results=[WebSearchHit(**vars(h)) for h in hits]))
+
+
+class ImageSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    count: Optional[int] = Field(default=None, ge=1, le=MAX_IMAGES)
+    app: Optional[str] = None
+    subject_ref: Optional[str] = Field(default=None, max_length=300)
+
+
+class ImageSearchHit(BaseModel):
+    image_url: str
+    page_url: Optional[str] = None
+    title: str = ""
+    thumbnail_url: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    description: str = ""
+
+
+class ImageSearchResult(BaseModel):
+    provider: str
+    kind: str
+    results: list[ImageSearchHit]
+
+
+@router.post("/images", response_model=DataResponse[ImageSearchResult])
+def image_search(payload: ImageSearchRequest, user: CurrentUser, session: Session = Depends(get_session)):
+    """Pictures from the same backend `/web` would use. Candidates only: the suite never
+    downloads one, and says nothing about who may use it, because no backend knows."""
+    app = access.app_for(user, payload.app)
+    row = _backend(session, user)
+    kind = row.kind if row else "duckduckgo"
+    name = row.name if row else "DuckDuckGo"
+    try:
+        hits = search_images(kind=kind, query=payload.query, api_key=crypto.decrypt(row.api_key) if row else "",
+                             base_url=(row.base_url or "") if row else "", count=payload.count)
+    except SearchError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message})
+
+    _record(session, user, app, "search.images", row, kind, name, payload.subject_ref)
+    return DataResponse(data=ImageSearchResult(provider=name, kind=kind,
+                                               results=[ImageSearchHit(**vars(h)) for h in hits]))
 

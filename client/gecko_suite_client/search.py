@@ -24,6 +24,17 @@ def web_search(client: SuiteClient, query: str, *, count: Optional[int] = None, 
     return client.request("POST", "/api/v1/search/web", json=body)["results"]
 
 
+def image_search(client: SuiteClient, query: str, *, count: Optional[int] = None, app: Optional[str] = None,
+                 subject_ref: Optional[str] = None) -> list[dict]:
+    """Pictures to offer a person: `image_url`, and `page_url`, `title`, `thumbnail_url`,
+    `width`, `height`, `description` where the backend said. Nothing is downloaded."""
+    body: dict = {"query": query}
+    for key, value in (("count", count), ("app", app or client.app), ("subject_ref", subject_ref)):
+        if value:
+            body[key] = value
+    return client.request("POST", "/api/v1/search/images", json=body)["results"]
+
+
 def format_results(results: list[dict]) -> str:
     """Hits as text a model reads well, numbered so it can cite them."""
     if not results:

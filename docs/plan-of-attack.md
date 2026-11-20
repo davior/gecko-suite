@@ -153,6 +153,7 @@ made entirely by hand" keeps holding.
 | `POST /ai/images`, `POST /ai/videos`, `GET` / `DELETE /ai/jobs/{id}` | fal jobs; the result is a short-lived URL the caller ingests | GAM `generation/` + `generation/pricing.py` |
 | `POST /ai/speech/tts`, `POST /ai/speech/stt` | TTS returns audio + `X-Speech-Provider` / `X-Speech-Voice`; STT is Deepgram | Notes speech (the GN-V4 contract) + GAM Deepgram |
 | `POST /search/web` | Unified web search | Notes `web_search.py` |
+| `POST /search/images` | Pictures from the same backend, as candidates (never downloaded here) | new, for GVC's backgrounds and overlays |
 | `GET /ai/models?capability=`, `GET /ai/resolve?task=&app=` | What can I use, and what will this task use | new |
 | `GET /prompts`, `/recipes`, `/personas` | Read by the apps' assistants | Notes models |
 | `GET /usage?app=&subject=&days=` | Totals, per provider, per day, per subject | Notes `get_usage` + GAM `totals_for` |
@@ -344,6 +345,18 @@ the audio cache, usage in characters. Decisions:
 **M3c as built — web search and personas in the assistants.** Both assistants are offered the
 suite's `web_search` tool where the suite is there, and ask as a persona chosen per turn and kept
 on the turn row, so a rerun is asked as the same one: GAM [#61](https://github.com/davior/gam/pull/61), GVC [#40](https://github.com/davior/gvc/pull/40).
+
+**Image search (for GVC's backgrounds and overlays).** `POST /search/images` asks the same
+backend `/search/web` would use, so there is one search to set up. It returns candidates
+(`image_url`, and `page_url`, `title`, `thumbnail_url`, `width`, `height`, `description`
+where the backend said) and downloads nothing: the suite keeps no app content, and GAM
+fetches the one a person picks. Tavily's pictures come beside its page results with model-
+written descriptions but no source page, so `page_url` is left empty rather than guessed;
+Brave's image API and SearXNG's `images` category give the page and size. DuckDuckGo, the
+no-key fallback, is a 409 `images_unsupported` that says to set up one of the others: its
+picture results sit behind a per-query token scraped from a page, which would break without
+warning and read as "no pictures". No backend knows who may use a picture, so nothing here
+claims to. Recorded in usage as `search.images`.
 
 **M4 — Notes cutover.** Notes' `/api/settings/ai-providers/proxy/*` routes forward to the
 raw passthrough, so its frontend `AIService` is untouched at first. `_record_ai_usage`

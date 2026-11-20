@@ -225,6 +225,17 @@ def test_embeddings_and_search_through_the_package(auth_client, catalog, vendors
     assert web_search(client, "owls")[0]["url"] == "https://o.example"
 
 
+def test_image_search_through_the_package(auth_client, vendors):
+    from gecko_suite_client import image_search
+
+    auth_client.post("/api/v1/search/providers", json={"name": "T", "kind": "tavily", "api_key": "k"})
+    client = SuiteClient(token="t", http=auth_client)
+    vendors.respond = lambda r: httpx.Response(200, json={"images": [{"url": "https://i.example/o.jpg",
+                                                                      "description": "owl"}]})
+    hits = image_search(client, "owls", count=3, app="gvc")
+    assert hits[0]["image_url"] == "https://i.example/o.jpg" and hits[0]["description"] == "owl"
+
+
 def test_an_embedder_knows_its_model_before_it_embeds_anything(auth_client, catalog, vendors):
     """GAM reads `model` to pick the vectors a query may be compared with, and to report
     coverage: neither of which embeds."""
