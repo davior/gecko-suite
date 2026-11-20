@@ -157,6 +157,7 @@ _APP_ALLOWED = (
     ("GET", "/api/v1/ai/speech/"),
     ("DELETE", "/api/v1/ai/media/jobs/"),
     ("POST", "/api/v1/search/web"),
+    ("POST", "/api/v1/search/images"),
     ("GET", "/api/v1/resolve"),
     ("GET", "/api/v1/models"),
     ("GET", "/api/v1/prompts"),

@@ -296,3 +296,73 @@ def test_an_app_credential_can_search(client, gam_secret, vendors):
     vendors.respond = lambda r: httpx.Response(200, text=DDG_PAGE)
     res = client.post("/api/v1/search/web", headers=_app_headers(gam_secret), json={"query": "owls"})
     assert res.status_code == 200
+
+
+# ─── image search ────────────────────────────────────────────────────────────
+
+
+def _backend(auth_client, kind, **extra):
+    res = auth_client.post("/api/v1/search/providers", json={"name": kind.title(), "kind": kind, **extra})
+    assert res.status_code == 201, res.text
+
+
+def test_image_search_with_tavily_asks_for_described_pictures(auth_client, vendors, session):
+    from app.models.usage import UsageEvent
+
+    _backend(auth_client, "tavily", api_key="tvly-k")
+    vendors.respond = lambda r: httpx.Response(200, json={"results": [], "images": [
+        {"url": "https://img.example/owl.jpg", "description": "A barn owl in flight at dusk"},
+        {"url": "https://img.example/owl.jpg", "description": "the same file, listed twice"},
+        {"url": "ftp://img.example/x.jpg", "description": "not http"},
+        "https://img.example/plain.png",
+    ]})
+    res = auth_client.post("/api/v1/search/images", json={"query": "owls", "app": "gvc",
+                                                          "subject_ref": "gvc:project:p1"})
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert data["kind"] == "tavily"
+    assert [h["image_url"] for h in data["results"]] == ["https://img.example/owl.jpg", "https://img.example/plain.png"]
+    # Tavily does not say which page a picture is on, so none is invented.
+    assert data["results"][0]["page_url"] is None
+    assert data["results"][0]["description"] == "A barn owl in flight at dusk"
+    sent = json.loads(vendors.calls[-1].content)
+    assert sent["include_images"] is True and sent["include_image_descriptions"] is True
+    event = session.exec(select(UsageEvent)).one()
+    assert (event.task, event.app, event.subject_ref, event.cost) == ("search.images", "gvc", "gvc:project:p1", None)
+
+
+def test_image_search_with_brave_keeps_the_page_and_size(auth_client, vendors):
+    _backend(auth_client, "brave", api_key="brv")
+    vendors.respond = lambda r: httpx.Response(200, json={"results": [{
+        "title": "Owl at night", "url": "https://page.example/owls",
+        "thumbnail": {"src": "https://thumb.example/t.jpg"},
+        "properties": {"url": "https://img.example/big.jpg", "width": 1920, "height": 1080}}]})
+    hit = auth_client.post("/api/v1/search/images", json={"query": "owls"}).json()["data"]["results"][0]
+    assert hit == {"image_url": "https://img.example/big.jpg", "page_url": "https://page.example/owls",
+                   "title": "Owl at night", "thumbnail_url": "https://thumb.example/t.jpg",
+                   "width": 1920, "height": 1080, "description": ""}
+    assert vendors.calls[-1].url.path == "/res/v1/images/search"
+
+
+def test_image_search_with_searxng_reads_its_resolution_text(auth_client, vendors):
+    _backend(auth_client, "searxng", base_url="https://searx.example")
+    vendors.respond = lambda r: httpx.Response(200, json={"results": [{
+        "img_src": "https://img.example/a.jpg", "url": "https://page.example/a", "title": "A",
+        "thumbnail_src": "https://img.example/a_t.jpg", "resolution": "1280 × 720"}]})
+    hit = auth_client.post("/api/v1/search/images", json={"query": "owls"}).json()["data"]["results"][0]
+    assert (hit["width"], hit["height"], hit["page_url"]) == (1280, 720, "https://page.example/a")
+    assert vendors.calls[-1].url.params["categories"] == "images"
+
+
+def test_image_search_without_a_backend_says_how_to_get_one(auth_client, vendors):
+    vendors.respond = lambda r: pytest.fail("DuckDuckGo must not be scraped for pictures")
+    res = auth_client.post("/api/v1/search/images", json={"query": "owls"})
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "images_unsupported"
+    assert "Tavily" in res.json()["detail"]["message"]
+
+
+def test_an_app_credential_can_search_images(client, gam_secret, vendors):
+    res = client.post("/api/v1/search/images", headers=_app_headers(gam_secret), json={"query": "owls"})
+    # Reached the route (no backend set up for that user), not refused at the door.
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "images_unsupported"
