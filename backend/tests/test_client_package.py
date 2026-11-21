@@ -179,6 +179,52 @@ def test_a_model_with_its_own_search_is_never_handed_the_apps_tool(suite, vendor
     assert outcome.replies[0].builtin_tools == ["web_search"]
 
 
+def test_the_models_own_searches_are_reported_as_steps(suite, vendors):
+    from gecko_suite_client import WEB_SEARCH_TOOL
+
+    owl_search = [{"type": "server_tool_use", "id": "s1", "name": "web_search", "input": {"query": "owls"}},
+                  {"type": "web_search_tool_result", "tool_use_id": "s1", "content": []}]
+    vendors.respond = lambda r: _reply([*owl_search, {"type": "text", "text": "Owls hoot."}])
+    steps = []
+    conversation = SuiteChat(suite).conversation(system=[], tools=[ToolSpec(**WEB_SEARCH_TOOL)], prompt="Owls?")
+    run_agent(conversation, on_step=lambda kind, text: steps.append((kind, text)))
+    assert steps == [("search", "Searching the web: owls")]
+
+    # Streamed, each is reported as it starts, ahead of the text that follows it.
+    events = [
+        {"type": "message_start", "message": {"model": "claude-opus-5-5", "content": [], "usage": {}}},
+        {"type": "content_block_start", "index": 0, "content_block": owl_search[0]},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "content_block_start", "index": 1, "content_block": owl_search[1]},
+        {"type": "content_block_stop", "index": 1},
+        {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "Owls hoot."}},
+        {"type": "content_block_stop", "index": 2},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+        {"type": "message_stop"},
+    ]
+    vendors.respond = lambda r: httpx.Response(200, content="".join(f"data: {json.dumps(e)}\n\n" for e in events).encode())
+    order = []
+    conversation = SuiteChat(suite).conversation(system=[], tools=[ToolSpec(**WEB_SEARCH_TOOL)], prompt="Owls?")
+    outcome = run_agent(conversation, on_step=lambda kind, text: order.append(text),
+                        on_delta=lambda text: order.append(f"delta:{text}"))
+    assert order == ["Searching the web: owls", "delta:Owls hoot."]
+    assert outcome.replies[0].searches == ["owls"]
+
+
+def test_a_paused_reply_that_called_tools_has_them_run_first(suite, vendors):
+    script = iter([
+        _reply([{"type": "tool_use", "id": "t1", "name": "search_assets", "input": {"q": "owls"}}], "pause_turn"),
+        _reply([{"type": "text", "text": "Found them."}]),
+    ])
+    vendors.respond = lambda r: next(script)
+    conversation = SuiteChat(suite).conversation(system=[], tools=[SEARCH], prompt="Find owls")
+    outcome = run_agent(conversation, handlers={"search_assets": lambda args: "3 hits"})
+    assert outcome.reply == "Found them."
+    second = json.loads(vendors.calls[1].content)["messages"]
+    assert second[-1]["content"] == [{"type": "tool_result", "tool_use_id": "t1", "content": "3 hits"}]
+
+
 def test_an_app_can_keep_its_own_search(suite, vendors):
     from gecko_suite_client import WEB_SEARCH_TOOL
 

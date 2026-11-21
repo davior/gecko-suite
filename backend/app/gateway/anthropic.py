@@ -213,6 +213,35 @@ def _with_gathered(payload: dict, stalled: list[dict]) -> dict:
     return {**payload, "content": content}
 
 
+def tool_calls_last(content: list[dict]) -> list[dict]:
+    """Assistant content with its `tool_use` blocks moved to the end, order kept.
+
+    For a compatible gateway only. Anthropic reads an assistant message as one unit, but
+    DeepSeek's endpoint rejected a replayed reply whose three tool calls were followed by
+    more blocks (thinking and folded search summaries, from a reply where the model
+    searched natively and called the app's tools in one go) with "tool_use ids were found
+    without tool_result blocks immediately after", though the very next message held
+    every result. Its converter evidently splits an assistant message at what follows a
+    tool call. With the calls last, wherever it splits, they are what the results follow.
+    Nothing is lost: the other blocks keep their order, ahead of the calls.
+    """
+    calls = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+    if not calls:
+        return content
+    return [b for b in content if not (isinstance(b, dict) and b.get("type") == "tool_use")] + calls
+
+
+def search_queries(content: Any) -> list[str]:
+    """The queries of the native web searches in a reply's content, in order."""
+    queries = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "server_tool_use" and block.get("name") == "web_search":
+            asked = block.get("input").get("query") if isinstance(block.get("input"), dict) else None
+            if isinstance(asked, str) and asked.strip():
+                queries.append(asked.strip())
+    return queries
+
+
 def _add_usage(total: Usage, more: Optional[Usage]) -> Usage:
     if more is None:
         return total
@@ -241,8 +270,10 @@ def _content_blocks(message: ChatMessage, *, fold: bool = False) -> list[dict]:
     if message.raw is not None and message.raw.protocol == PROTOCOL:
         content = (message.raw.message or {}).get("content") if isinstance(message.raw.message, dict) else None
         if isinstance(content, list):
-            # Verbatim: thinking and fallback blocks included, nothing re-serialised.
-            return fold_searches(content) if fold else content
+            # Verbatim to Anthropic: thinking and fallback blocks included, nothing
+            # re-serialised. A compatible gateway gets the searches as text and the
+            # calls last (see `tool_calls_last`).
+            return tool_calls_last(fold_searches(content)) if fold else content
     blocks: list[dict] = []
     if message.text:
         blocks.append({"type": "text", "text": message.text})
@@ -389,6 +420,7 @@ def parse(payload: Any, target: Target) -> Reply:
         raw=RawMessage(protocol=PROTOCOL, message={"role": "assistant", "content": payload["content"]}),
         served_model=served,
         refusal_category=details.get("category") if stop == "refusal" else None,
+        searches=search_queries(payload["content"]),
     )
 
 
@@ -407,6 +439,7 @@ def _finish(payload: Any, target: Target, stalled: list[dict], spent: Usage) -> 
     """Parse the last reply, counting the stalled rounds' tokens and keeping their hits."""
     reply = parse(payload, target)
     reply.usage = _add_usage(spent, reply.usage)
+    reply.searches = [q for p in stalled for q in search_queries(p.get("content"))] + reply.searches
     if stalled:
         # Into the history only, after parsing, so the text the app shows is the answer.
         reply.raw = RawMessage(protocol=PROTOCOL, message=_with_gathered(reply.raw.message, stalled))
@@ -451,7 +484,8 @@ def _finish_tool_input(block: dict, raw: Optional[str]) -> None:
 
 
 def stream(target: Target, request: ChatRequest, *, max_tokens: int, params: dict) -> Iterator[tuple[str, Any]]:
-    """Yield ("delta", text) as text arrives, ("progress", None) for other output, then
+    """Yield ("delta", text) as text arrives, ("progress", None) for other output,
+    ("progress", {"search": query}) as the model starts a web search of its own, then
     ("final", Reply)."""
     body, headers = build_body(target, request, stream=True, max_tokens=max_tokens, params=params)
     stalled: list[dict] = []
@@ -482,6 +516,10 @@ def message_events(url: str, headers: dict, body: dict, *, label: str,
 
     ("progress", None) marks output that is not text (a tool's input, thinking), so a
     caller can show the stream is alive through minutes of a large tool call.
+    ("progress", {"search": query}) marks a native web search the model has just asked
+    for: the vendor runs it, so this is the only moment a caller can say so. It is a
+    `progress` rather than a kind of its own because the raw passthrough's loops read
+    every kind they do not know as the final message.
 
     Reassembles the same message the blocking endpoint would return (ported from Notes'
     `_iter_anthropic_events`), so `parse` reads both, and so the raw passthrough can hand
@@ -539,6 +577,8 @@ def message_events(url: str, headers: dict, body: dict, *, label: str,
                 content = message.get("content", [])
                 if index < len(content):
                     _finish_tool_input(content[index], buffers.pop(index, None))
+                    for query in search_queries([content[index]]):
+                        yield "progress", {"search": query}
             elif kind == "message_delta":
                 message.update(event.get("delta") or {})
                 if event.get("usage"):

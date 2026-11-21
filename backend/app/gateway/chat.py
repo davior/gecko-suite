@@ -244,6 +244,7 @@ def _result(reply: Reply, target: Target, task: Optional[str], event, builtin_to
         vendor=target.vendor,
         task=task,
         builtin_tools=list(builtin_tools),
+        searches=list(reply.searches),
         cost=event.cost,
         currency=event.currency,
         cost_estimated=event.cost_estimated,
@@ -280,8 +281,9 @@ def _sse(event: str, data: Any) -> str:
 
 
 def run_stream(session: Session, user: UserCtx, request: ChatRequest) -> Iterator[str]:
-    """Server-Sent Events: `delta` {text} as text arrives, a `tool_call` per call, then
-    `final` with the same body the blocking call returns, or `error` {code, message}.
+    """Server-Sent Events: `delta` {text} as text arrives, `search` {query} as the model
+    starts a web search of its own, a `tool_call` per call, then `final` with the same
+    body the blocking call returns, or `error` {code, message}.
 
     `prepare` runs before the first frame (the router calls it), so configuration
     mistakes are HTTP errors. Only failures after the stream has started are frames.
@@ -297,6 +299,12 @@ def run_stream(session: Session, user: UserCtx, request: ChatRequest) -> Iterato
         last_sent = time.monotonic()
         try:
             for kind, value in _adapter(target).stream(target, request, max_tokens=max_tokens, params=params):
+                if kind == "progress" and isinstance(value, dict) and value.get("search"):
+                    # The model searching for itself. The vendor runs it, so this is the
+                    # one moment an app can say "Searching the web: …" while it happens.
+                    last_sent = time.monotonic()
+                    yield _sse("search", {"query": value["search"]})
+                    continue
                 if kind == "progress":
                     # A comment frame: every SSE reader skips it, but it is bytes on the
                     # wire, so a caller's read timeout does not fire while the model
