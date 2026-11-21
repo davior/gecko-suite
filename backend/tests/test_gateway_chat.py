@@ -273,6 +273,52 @@ def test_search_blocks_are_replayed_to_deepseek_as_text_and_to_claude_verbatim(a
     assert "https://owls.example" in replayed[0]["text"]
 
 
+def test_deepseek_gets_a_replayed_replys_tool_calls_last(auth_client, deepseek, vendors):
+    # The reply that broke: DeepSeek called three of the app's tools and then searched
+    # and thought some more, all in one message. Replayed as it came, its endpoint said
+    # the calls were "found without tool_result blocks immediately after" though the
+    # next message held all three results.
+    calls = [{"type": "tool_use", "id": f"call_0{i}", "name": "search_assets", "input": {"q": str(i)}}
+             for i in range(3)]
+    content = [{"type": "thinking", "thinking": "first", "signature": "s1"},
+               {"type": "text", "text": "Looking."}, calls[0], calls[1],
+               *SEARCHED, {"type": "thinking", "thinking": "then", "signature": "s2"}, calls[2]]
+    history = [
+        {"role": "user", "content": "Owls?"},
+        {"role": "assistant", "text": "Looking.", "raw": {"protocol": "anthropic", "message": {
+            "role": "assistant", "content": content}}},
+        {"role": "tool", "results": [{"call_id": f"call_0{i}", "content": "none"} for i in range(3)]},
+    ]
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
+    _chat(auth_client, messages=history, tools=[TOOL])
+    replayed, results = json.loads(vendors.calls[-1].content)["messages"][1:3]
+    assert [b["type"] for b in replayed["content"]] == [
+        "thinking", "text", "text", "thinking", "tool_use", "tool_use", "tool_use"]
+    assert [b["id"] for b in replayed["content"][-3:]] == ["call_00", "call_01", "call_02"]
+    assert "https://owls.example" in replayed["content"][2]["text"]
+    assert [b["tool_use_id"] for b in results["content"]] == ["call_00", "call_01", "call_02"]
+
+
+def test_claude_gets_a_replayed_reply_exactly_as_it_came(auth_client, claude, vendors):
+    content = [{"type": "tool_use", "id": "tu_1", "name": "search_assets", "input": {}},
+               {"type": "text", "text": "after"}]
+    history = [
+        {"role": "user", "content": "Owls?"},
+        {"role": "assistant", "text": "", "raw": {"protocol": "anthropic", "message": {
+            "role": "assistant", "content": content}}},
+        {"role": "tool", "results": [{"call_id": "tu_1", "content": "none"}]},
+    ]
+    vendors.respond = lambda r: _anthropic_reply([{"type": "text", "text": "ok"}])
+    _chat(auth_client, messages=history, tools=[TOOL])
+    assert json.loads(vendors.calls[-1].content)["messages"][1]["content"] == content
+
+
+def test_a_reply_says_which_searches_the_model_ran_itself(auth_client, deepseek, vendors):
+    vendors.respond = lambda r: _anthropic_reply([*SEARCHED, {"type": "text", "text": "Owls are birds."}])
+    data = _chat(auth_client, tools=[APP_SEARCH], prefer_builtin=["web_search"]).json()["data"]
+    assert data["searches"] == ["owl facts"]
+
+
 # ─── OpenAI-compatible ───────────────────────────────────────────────────────
 
 
@@ -652,3 +698,8 @@ def test_a_stalled_streamed_turn_is_finished_in_the_same_stream(auth_client, dee
     final = frames[-1][1]
     assert frames[-1][0] == "final" and final["text"] == "Owls are birds." and final["stop"] == "end"
     assert final["usage"]["input_tokens"] == 20
+    # Each search is announced as it starts, before the reply that follows it.
+    kinds = [f[0] for f in frames]
+    assert [f[1] for f in frames if f[0] == "search"] == [{"query": "owl facts"}]
+    assert kinds.index("search") < kinds.index("final")
+    assert final["searches"] == ["owl facts"]  # the stalled round's, for a caller that did not stream

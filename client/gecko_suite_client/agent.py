@@ -9,6 +9,7 @@ did not parse.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional, Sequence, Union
@@ -87,6 +88,13 @@ def default_round(handlers: Mapping[str, Callable[[dict], HandlerResult]],
     return run
 
 
+def _accepts(method: Callable, name: str) -> bool:
+    try:
+        return name in inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def run_agent(
     conversation: SuiteConversation,
     *,
@@ -116,25 +124,36 @@ def run_agent(
       own settings screen says so here.
     - `caps` limits how many times a tool may run in this turn (GVC's
       ASSISTANT_MAX_GENERATIONS for generate_image).
+    - `on_step("search", "Searching the web: …")` is also called for each web search the
+      model runs itself, which never reaches a handler.
     """
     if run_round is None:
         run_round = default_round(handlers or {}, caps or {}, {})
     outcome = Outcome()
     nudges = 0
+    # Only passed when the conversation takes them: an app's own conversation objects
+    # (GVC's, which this loop replaced, and the scripted ones its tests use) have `ask()`
+    # and nothing else.
+    ask_kwargs: dict = {}
+    if on_delta is not None:
+        ask_kwargs["on_delta"] = on_delta
+    if _accepts(conversation.ask, "on_search"):
+        ask_kwargs["on_search"] = lambda query: on_step("search", f"Searching the web: {query}")
     for _ in range(max_rounds):
         if cancelled():
             raise Stopped()
-        # Only passed when asked for: an app's own conversation objects (GVC's, which this
-        # loop replaced, and the scripted ones its tests use) have `ask()` and nothing else.
-        reply = conversation.ask(on_delta=on_delta) if on_delta is not None else conversation.ask()
+        reply = conversation.ask(**ask_kwargs)
         outcome.rounds += 1
         outcome.replies.append(reply)
         on_reply(reply)
         if reply.text:
             outcome.reply = reply.text
 
-        if reply.stop == "pause":
+        if reply.stop == "pause" and not reply.tool_calls:
             # A server-side tool paused the turn; sending the history back resumes it.
+            # Not when it also called the app's tools: those need their results first, or
+            # the next ask is a 400 ("tool_use ids were found without tool_result
+            # blocks"). Anthropic never pauses like that; a compatible gateway might.
             continue
         if reply.stop == "refusal":
             category = getattr(reply, "refusal_category", None)

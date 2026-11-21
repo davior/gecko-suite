@@ -206,6 +206,9 @@ class ChatResult(BaseModel):
     task: Optional[str] = None
     # The vendor-run tools this call had, after `prefer_builtin` was applied.
     builtin_tools: list[str] = Field(default_factory=list)
+    # The queries of the web searches the model ran itself, in order. A streamed call
+    # also sends each as a `search` frame as it starts.
+    searches: list[str] = Field(default_factory=list)
     cost: Optional[float] = None
     currency: Optional[str] = None
     cost_estimated: bool = True
@@ -234,6 +237,8 @@ class Reply:
     raw: RawMessage
     served_model: str = ""
     refusal_category: Optional[str] = None
+    # The web searches the model ran itself, the rounds the gateway finished included.
+    searches: list[str] = field(default_factory=list)
 
 
 class UpstreamError(Exception):

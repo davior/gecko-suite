@@ -62,6 +62,8 @@ class Reply:
     # Vendor-run tools the call had: ["web_search"] when the model searched for itself
     # instead of calling the app's web_search tool.
     builtin_tools: list[str] = field(default_factory=list)
+    # The queries of the web searches the model ran itself, in order.
+    searches: list[str] = field(default_factory=list)
 
 
 class SuiteChat:
@@ -162,11 +164,16 @@ class SuiteConversation:
     def __init__(self, chat: SuiteChat, system: list[str], tools: list[ToolSpec], messages: list[dict]):
         self.chat, self.system, self.tools, self.messages = chat, system, tools, messages
 
-    def ask(self, *, on_delta: Optional[Callable[[str], None]] = None, builtin_tools: Sequence[str] = ()) -> Reply:
+    def ask(self, *, on_delta: Optional[Callable[[str], None]] = None, builtin_tools: Sequence[str] = (),
+            on_search: Optional[Callable[[str], None]] = None) -> Reply:
         """Send the history and return the model's next message.
 
         With `on_delta`, the call streams and text is handed over as it arrives (for a
         chat panel that should not sit silent through a long generation).
+
+        `on_search(query)` is told of each web search the model runs itself (Claude,
+        DeepSeek): as it starts when streaming, otherwise once the reply is back. The app's
+        own web_search handler is never called for those, so this is how it can show them.
         """
         body = self.chat.request_body(self.system, self.tools, self.messages,
                                       **({"builtin_tools": list(builtin_tools)} if builtin_tools else {}))
@@ -177,6 +184,9 @@ class SuiteConversation:
             for event, payload in self.chat.client.stream("/api/v1/ai/chat", {**body, "stream": True}):
                 if event == "delta":
                     on_delta(payload.get("text", ""))
+                elif event == "search":
+                    if on_search is not None and payload.get("query"):
+                        on_search(str(payload["query"]))
                 elif event == "final":
                     data = payload
                 elif event == "error":
@@ -187,6 +197,10 @@ class SuiteConversation:
                 from gecko_suite_client.client import SuiteUnavailable
 
                 raise SuiteUnavailable(0, "stream_incomplete", "The stream ended without a reply")
+        searches = [str(q) for q in data.get("searches") or []]
+        if on_delta is None and on_search is not None:
+            for query in searches:
+                on_search(query)
         # Verbatim, raw vendor message included: the next ask replays it.
         self.messages.append(data["message"])
         return Reply(
@@ -196,7 +210,7 @@ class SuiteConversation:
             stop=data["stop"], model=data["model"], vendor=data["vendor"],
             input_tokens=data["usage"]["input_tokens"], output_tokens=data["usage"]["output_tokens"],
             cost=data.get("cost"), refusal_category=data.get("refusal_category"),
-            builtin_tools=list(data.get("builtin_tools") or []),
+            builtin_tools=list(data.get("builtin_tools") or []), searches=searches,
         )
 
     def answer(self, results: Sequence[ToolResult]) -> None:
