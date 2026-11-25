@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 from app import crypto
 from app.auth import UserCtx
+from app.database import release_connection
 from app.config import settings
 from app.gateway.chat import upstream_http_error
 from app.gateway.types import UpstreamError
@@ -83,6 +84,8 @@ def transcribe(session: Session, user: UserCtx, audio: bytes, *, content_type: s
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
             "code": "ai_not_configured",
             "message": "No Deepgram key is set up. Add a Deepgram provider in Gecko Suite."})
+    # An hour of audio takes Deepgram minutes, and GAM transcribes every upload.
+    release_connection(session)
     try:
         result = deepgram.transcribe(audio, crypto.decrypt(provider.api_key),
                                      content_type=content_type, model=model, language=language)

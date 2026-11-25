@@ -35,6 +35,7 @@ from sqlmodel import Session
 
 from app import crypto
 from app.auth import UserCtx
+from app.database import release_connection
 from app.config import settings
 from app.gateway import upstream
 from app.gateway.chat import upstream_http_error
@@ -88,6 +89,8 @@ def speak(session: Session, user: UserCtx, *, text: str, model_ref: Optional[str
     if cached is not None:
         return Spoken(cached, "audio/mpeg", provider.vendor, model.id, chosen, True)
 
+    # A render narrates chunk after chunk through here.
+    release_connection(session)
     try:
         if provider.vendor == VENDOR_DEEPGRAM:
             audio, media_type, billed, request_id = _deepgram(key, chosen, text, params)

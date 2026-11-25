@@ -49,6 +49,29 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.close()
 
 
+def release_connection(session: Session) -> None:
+    """Hand the session's pooled connection back before waiting on someone else.
+
+    A session that has read anything holds its connection until the transaction ends, and
+    a request's session lives as long as the request. The gateway reads its routing, then
+    waits seconds or minutes on a vendor; holding a connection all that time meant fifteen
+    calls in flight (the pool's 5 + 10) left every other request, `/resolve` included,
+    waiting 30 s for one and failing as a bare 500 (tests/test_pool_release.py).
+
+    Committed without expiring what was loaded, so the rows read so far stay readable
+    during the call without a query that would take a connection again. Anything written
+    before this point is committed with it; a later use of the session checks out a
+    connection afresh, briefly, which is how usage is recorded at the end.
+    """
+    if not session.in_transaction():
+        return
+    expire, session.expire_on_commit = session.expire_on_commit, False
+    try:
+        session.commit()
+    finally:
+        session.expire_on_commit = expire
+
+
 def get_session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session

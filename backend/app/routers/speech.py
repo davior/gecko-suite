@@ -13,7 +13,7 @@ from sqlmodel import Session
 
 from app.auth import CurrentUser, origin_allowed, user_from_token
 from app.config import settings
-from app.database import get_session
+from app.database import get_session, release_connection
 from app.schemas import DataResponse
 from app import crypto
 from app.models.usage import UsageEvent
@@ -125,6 +125,9 @@ async def live_transcription(
 
     _live_sessions.add(user.id)
     seconds = 0.0
+    # A dictation lasts as long as the person talks: it must not hold a database
+    # connection meanwhile (see database.release_connection).
+    release_connection(session)
     try:
         try:
             upstream = await live.open_upstream(live.listen_url(model, language),

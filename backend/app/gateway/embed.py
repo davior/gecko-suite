@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 from app import crypto
 from app.auth import UserCtx
+from app.database import release_connection
 from app.gateway import upstream
 from app.gateway.chat import upstream_http_error
 from app.gateway.types import UpstreamError
@@ -87,6 +88,8 @@ def run(session: Session, user: UserCtx, request: EmbedRequest) -> EmbedResult:
 
     vectors: list[list[float]] = []
     tokens = 0
+    # GAM embeds every search and every enrichment through here, so these are many.
+    release_connection(session)
     try:
         for start in range(0, len(request.texts), MAX_BATCH):
             batch = request.texts[start:start + MAX_BATCH]
