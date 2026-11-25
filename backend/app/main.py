@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlmodel import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -91,6 +92,17 @@ async def _http_exception_handler(request, exc: StarletteHTTPException):
     if not isinstance(detail, dict) or "code" not in detail:
         detail = {"code": _default_code(exc.status_code), "message": str(detail)}
     return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+
+
+@app.exception_handler(PoolTimeout)
+async def _pool_timeout_handler(request, exc: PoolTimeout):
+    """Every database connection busy for the pool's whole wait: the suite is overloaded,
+    which the apps should say as that (a 503 `suite_unavailable` is what the client turns
+    into "Gecko Suite is unavailable") rather than as a bare 500 nobody can act on."""
+    logger.error("Database pool exhausted on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": {
+        "code": "suite_unavailable",
+        "message": "Gecko Suite is too busy to answer right now. Try again in a moment."}})
 
 
 def _default_code(status_code: int) -> str:

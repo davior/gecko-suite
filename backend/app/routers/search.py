@@ -11,7 +11,7 @@ from sqlmodel import Session
 from app import crypto
 from app.auth import CurrentUser, UserCtx
 from app.clock import utcnow
-from app.database import get_session
+from app.database import get_session, release_connection
 from app.models.library import WebSearchProvider
 from app.models.usage import UsageEvent
 from app.routers.library import visible_query, visible_row
@@ -179,6 +179,7 @@ def web_search(payload: WebSearchRequest, user: CurrentUser, session: Session = 
     row = _backend(session, user)
     kind = row.kind if row else "duckduckgo"
     name = row.name if row else "DuckDuckGo"
+    release_connection(session)
     try:
         hits = search(kind=kind, query=payload.query, api_key=crypto.decrypt(row.api_key) if row else "",
                       base_url=(row.base_url or "") if row else "", count=payload.count)
@@ -221,6 +222,7 @@ def image_search(payload: ImageSearchRequest, user: CurrentUser, session: Sessio
     row = _backend(session, user)
     kind = row.kind if row else "duckduckgo"
     name = row.name if row else "DuckDuckGo"
+    release_connection(session)
     try:
         hits = search_images(kind=kind, query=payload.query, api_key=crypto.decrypt(row.api_key) if row else "",
                              base_url=(row.base_url or "") if row else "", count=payload.count)

@@ -42,6 +42,7 @@ from sqlmodel import Session, col, select
 
 from app import crypto
 from app.auth import UserCtx
+from app.database import release_connection
 from app.gateway import anthropic, openai, upstream
 from app.gateway.chat import upstream_http_error
 from app.gateway.types import UpstreamError, Usage
@@ -316,6 +317,7 @@ def complete(session: Session, user: UserCtx, protocol: str, request: Any) -> di
     if not request.model.strip():
         raise bad_request("bad_model", "Say which model")
     found = resolve(session, user, protocol=protocol, vendor=request.vendor, model_id=request.model)
+    release_connection(session)
     try:
         if protocol == "anthropic":
             # Streamed internally, so the read timeout bounds the gap between events and a
@@ -360,6 +362,7 @@ def stream(session: Session, user: UserCtx, protocol: str, request: Any) -> Iter
     if not request.model.strip():
         raise bad_request("bad_model", "Say which model")
     found = resolve(session, user, protocol=protocol, vendor=request.vendor, model_id=request.model)
+    release_connection(session)
     events = {"anthropic": anthropic_events, "openai": openai_events, "ollama": ollama_events}[protocol]
 
     def frames() -> Iterator[str]:

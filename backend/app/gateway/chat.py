@@ -12,6 +12,7 @@ from sqlmodel import Session
 
 from app import crypto
 from app.config import settings
+from app.database import release_connection
 from app.auth import UserCtx
 from app.gateway import anthropic, openai
 from app.gateway.types import ChatRequest, ChatResult, Reply, Target, UpstreamError
@@ -266,6 +267,7 @@ def upstream_http_error(exc: UpstreamError) -> HTTPException:
 
 def run(session: Session, user: UserCtx, request: ChatRequest) -> ChatResult:
     target, task, max_tokens, params = prepare(session, user, request)
+    release_connection(session)
     try:
         reply = _adapter(target).call(target, request, max_tokens=max_tokens, params=params)
     except UpstreamError as exc:
@@ -294,6 +296,9 @@ def run_stream(session: Session, user: UserCtx, request: ChatRequest) -> Iterato
     Target before the first byte.
     """
     target, task, max_tokens, params = prepare(session, user, request)
+    # Whether FastAPI closes the request's session before the stream or after it depends
+    # on its version; a stream of minutes must not hold a connection either way.
+    release_connection(session)
 
     def frames() -> Iterator[str]:
         last_sent = time.monotonic()
